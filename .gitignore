@@ -1,0 +1,93 @@
+########################################
+# .NET / MSBuild build artifacts
+########################################
+[Bb]in/
+[Oo]bj/
+out/
+publish/
+*.pdb
+*.dll.config
+*.user
+*.userosscache
+*.suo
+*.userprefs
+
+########################################
+# Visual Studio / VS Code / Rider
+########################################
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.iml
+*.sln.docstates
+
+########################################
+# Test results / coverage
+########################################
+TestResults/
+[Cc]overage/
+*.trx
+*.coverage
+*.coveragexml
+
+########################################
+# NuGet
+########################################
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+.nuget/
+
+########################################
+# Contenido de terceros (mods de ejemplo bajados de Nexus)
+# NUNCA se debe subir: son assets con permisos de redistribución
+# restringidos por sus autores (ver permisos en la pagina de cada mod).
+# Se usan solo localmente para el spike tecnico / pruebas manuales.
+########################################
+example/
+
+########################################
+# Binarios de herramientas externas (repak.exe, retoc.exe)
+# Son legalmente redistribuibles (MIT/Apache-2.0, ver docs/04-licencias-terceros.md)
+# pero no se versionan como blobs binarios en git; se descargan con un script
+# (tools/download-tools.ps1, a agregar) o manualmente siguiendo tools/bin/VERSIONS.txt.
+########################################
+tools/bin/*.exe
+tools/bin/*.dll
+
+########################################
+# Oodle (oo2core_*.dll) — propietario de RAD Game Tools.
+# NUNCA se redistribuye. La app debe localizarlo en la instalación del juego
+# del usuario en tiempo de ejecución (ver docs/04-licencias-terceros.md).
+########################################
+oo2core_*.dll
+
+########################################
+# Artefactos temporales de staging / extracción (spikes, pruebas manuales,
+# directorios de trabajo en tiempo de ejecución de la app)
+########################################
+**/_extracted/
+**/_extracted_raw/
+**/_legacy.pak
+**/_spike/
+*.tmp
+*.temp
+temp/
+staging/
+
+########################################
+# Secrets / configuración local de máquina
+########################################
+appsettings.local.json
+appsettings.*.local.json
+*.env
+.env
+
+########################################
+# Sistema operativo
+########################################
+Thumbs.db
+desktop.ini
+.DS_Store
