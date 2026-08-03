@@ -196,3 +196,32 @@ Implicaciones directas para la Etapa 3 (arquitectura):
 Antes de escribir código de producción, se requiere adicionalmente:
 - Confirmar disponibilidad y licencia de **UAssetAPI** para uso en este proyecto (MIT — compatible).
 - Evaluar en un spike técnico acotado la lectura de un `.pak`/`.utoc`-`.ucas` real de un mod replacer y de un mod Dresscode de ejemplo (para inspeccionar el contenedor de salida real), a fin de confirmar viabilidad práctica del `Parser` y del `Converter` (Modo B) antes de comprometer la arquitectura final.
+
+## 11. Modo Simple / Wrapper (implementado, MVP actual) vs. Modo Full (investigación en curso)
+
+Tras completar el spike de Modo B en profundidad (ver `docs/03-spike-tecnico-conclusiones.md` sección 8), se confirmó que **parchear los DataAssets de Dresscode (DA_ModMetaData / PDA_ModData_Character) requiere reimplementar partes no triviales del formato binario Zen de Unreal Engine** (name maps con prefijo de longitud variable, header de offsets absolutos, y muy probablemente ajustar entradas del export map con offsets de datos serializados) — un trabajo de ingeniería inversa real, sin acceso al código fuente del engine custom de FF7R ni forma de validar en el juego desde este entorno. Se decidió **no bloquear el primer entregable testeable** en resolver esa incógnita, y en su lugar implementar ya, con **cero riesgo binario**, un segundo modo de exportación:
+
+### Modo Simple (Wrapper) — implementado
+
+En lugar de repackear/parchear el contenido cookeado, el Modo Simple:
+1. Toma el `.pak`/`.utoc`/`.ucas` **original del replacer, sin modificar ni un byte**.
+2. Los renombra a `{PluginName}-WindowsNoEditor.pak/.utoc/.ucas`.
+3. Genera el `.uplugin` (JSON) y copia/genera un ícono.
+4. Arma la estructura de carpetas exacta que espera Reunion Mod Loader (`{PluginName}/{PluginName}.uplugin`, `Resources/Icon.png`, `Content/Paks/WindowsNoEditor/*`).
+
+**Qué logra**: convierte cualquier replacer en un plugin instalable/activable-desactivable desde el listado de mods de Reunion Mod Loader, con nombre, ícono y metadata propios — sin ningún riesgo de corromper el contenedor (es exactamente el mismo binario que ya funcionaba como replacer).
+
+**Limitación explícita**: el mod resultante **no aparece como un outfit seleccionable dentro del menú propio de Dresscode** (el menú in-game de selección de trajes depende de que exista un `PDA_ModData_Character` registrado, que el Modo Simple no crea). Se comporta como reemplazo directo/incondicional, igual que el replacer original — simplemente empaquetado prolijamente. Esta limitación se comunica siempre en la UI (pantalla de Exportación) como mensaje `Info`.
+
+Implementado en: `DressCoder.Infrastructure.Assembly.PluginAssembler` (`IPluginAssembler`), `UpluginWriter`, `ModValidator` (`IModValidator`). Probado end-to-end contra el replacer de ejemplo (`example/replacer/ZAerithBahamutRobeStandard_P`).
+
+### Modo Full (integración real con el menú de Dresscode) — investigación, no implementado
+
+Para lograr que el outfit aparezca en el selector de Dresscode hace falta generar/parchear un `PDA_ModData_Character` (y opcionalmente un `DA_ModMetaData`) válidos dentro del contenedor. La investigación binaria (ver docs/03 sección 8) determinó:
+- El header de un paquete Zen tiene **64 bytes fijos**, con el name map empezando siempre en el offset 64.
+- Cada entrada del name map se serializa como `[1 byte: bit7=ancho UTF-16, bits0-6=longitud][datos][0x00 terminador]` — variable en longitud.
+- Cambiar la longitud de cualquier string (nombre de plugin, FriendlyName, etc.) requiere desplazar todos los bytes posteriores y ajustar **todos los campos de offset del header que apunten después del punto de parche** — factible de automatizar de forma genérica (detectando qué campos son offsets válidos), pero **no se pudo confirmar si el export map también necesita ajustes de "CookedSerialOffset"** sin poder decompilar el motor custom o probar en el juego real.
+- Cualquier error en este parcheo probablemente se traduzca en un crash o un mod que no carga, detectable solo probando en el juego — algo que este entorno de desarrollo no puede hacer por sí mismo.
+
+**Decisión**: esta línea de trabajo queda documentada como incógnita abierta (ver docs/03 sección 8, incógnitas 1 y 5) para una fase posterior, idealmente con acceso a pruebas reales en el juego para validar cada hipótesis incrementalmente (empezar por cambiar un string de igual longitud —riesgo cero de offsets—, después probar con longitud distinta, después el export map). No es parte del MVP actual.
+

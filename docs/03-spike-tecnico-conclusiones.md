@@ -198,3 +198,47 @@ Con estos hallazgos, la arquitectura del Converter (Modo B) puede diseñarse con
 6. **PluginAssembler**: arma la estructura de carpetas + uplugin + icon + pak
 
 Las incógnitas 1-4 se resuelven con spikes adicionales cortos durante la implementación de cada módulo.
+
+## 8. Investigación del formato Zen (para Modo Full — DataAsset patching)
+
+Investigación estática (sin decompilar el engine, sin acceso al juego) sobre `DA_ModMetaData.uasset` y `AerithNier.uasset` (el `PDA_ModData_Character`) extraídos del mod Dresscode de ejemplo, buscando entender si es viable patchear estos DataAssets de forma genérica.
+
+### 8.1 Header fijo de 64 bytes
+
+Los dos archivos analizados (1207 y 5168 bytes) comparten exactamente esta estructura en los primeros 64 bytes:
+
+```
+[0:4)   bHasVersioningInfo / flags       (0 en ambos)
+[4:12)  Name (FMappedName del propio paquete, 8 bytes) (0,0 en ambos)
+[12:16) PackageFlags                     (0 en ambos)
+[16:20) campo grande, no es un offset válido (0x80000000 en ambos) — probablemente CookedHeaderSize con un bit de flag empaquetado
+[20:24) offset absoluto (varía por archivo, cerca del final del name map + hashes)
+[24:64) 10 campos más de 4 bytes, todos offsets absolutos dentro del archivo salvo alguno en 0
+```
+
+**Hallazgo clave**: el campo en `[24:28)` vale **64 en los dos archivos** — confirma que el name map SIEMPRE arranca justo después del header fijo de 64 bytes, sin importar el tamaño del paquete.
+
+### 8.2 Formato del Name Map
+
+Se decodificó exitosamente el name map completo de `DA_ModMetaData.uasset` (21 entradas) parseando cada entrada como:
+
+```
+1 byte header: bit7 = ancho (UTF-16 si está seteado), bits0-6 = longitud N
+N bytes de datos (ANSI o UTF-16LE según el bit de ancho)
+1 byte 0x00 terminador (solo si N > 0)
+```
+
+Verificado hasta hacer coincidir el offset final del último nombre con el valor del campo de header `[28:32)` (interpretado como "ImportMapOffset"): coincide exactamente (0x223 = 547 para el archivo de 1207 bytes). Esto da alta confianza en que el parseo es correcto.
+
+Las cadenas de valores reales de las propiedades (ej. `"Aerith Nier"` como valor de `FriendlyName`, `"By TJ"` como `CreatedBy`) **no** están en el name map — están más adelante, en la sección de datos de propiedades tageadas, con el formato clásico de `FString` de Unreal (int32 de longitud + datos + null).
+
+### 8.3 Qué se puede patchear con confianza y qué no
+
+- **Con longitud de string igual (mismo Nº de bytes)**: reemplazar el contenido sin tocar nada más — riesgo prácticamente nulo, ningún offset cambia.
+- **Con longitud distinta**: es necesario (a) desplazar todos los bytes posteriores al punto de parche, y (b) sumar el delta a todo campo del header de 64 bytes cuyo valor actual sea un offset mayor al punto de parche. Esto es mecánicamente sencillo de automatizar de forma genérica (sin necesitar saber el nombre semántico de cada campo, solo detectar "parece un offset válido dentro del archivo").
+- **Incógnita no resuelta**: la región del "export map" (bytes entre los offsets de `[32:36)` y `[40:44)`, 176 bytes en el archivo pequeño) no tiene un patrón reconocible de offsets/tamaños plausibles — parece contener hashes/GUIDs en vez de una tabla de `FExportMapEntry` con `CookedSerialOffset` legible a simple vista. No se pudo confirmar si additional fixups son necesarios ahí sin decompilar el motor custom de FF7R o probar en el juego.
+
+### 8.4 Decisión
+
+Dado que un error en este parcheo solo es detectable con un crash o un mod que no carga en el juego real (algo que este entorno no puede probar), se decidió **no implementar el patcher de DataAssets todavía** y priorizar en su lugar el Modo Simple/Wrapper (ver `docs/02-documento-tecnico.md` sección 11), que no requiere ninguna de estas modificaciones binarias. Esta investigación queda documentada para retomarla cuando se pueda validar incrementalmente en el juego.
+
