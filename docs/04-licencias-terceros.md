@@ -20,6 +20,27 @@ de licencia.
 - Autores: Truman Kilen, Archengius (con contribuciones de LongerWarrior)
 - **Redistribución: permitida.** Se embebe el binario `retoc.exe` en `tools/bin/` y en el
   paquete final de la app, con el mismo requisito de incluir el aviso de copyright.
+- **Estado (post spike round-trip, ver `docs/03` sección 9)**: `pack-raw` (v0.1.5) no soporta
+  compresión al reempaquetar — produce contenedores que el juego no reconoce/lista. Se dejó de
+  usar para el rebuild del contenedor; se mantiene solo como herramienta auxiliar de
+  inspección (`info`, `list`, `verify`) durante el desarrollo, no como parte del pipeline
+  de producción de la app.
+
+## FFVII-Rebirth-Mesh-Patcher (código de referencia portado)
+
+- Repositorio: https://github.com/nikolaybutnik/FFVII-Rebirth-Mesh-Patcher
+- Licencia: **MIT**
+- Autor: nikolaybutnik
+- **Uso**: no se redistribuye el proyecto ni se invoca como subproceso — se **portaron manualmente
+  a C#** partes de su lógica de lectura/escritura del formato binario `.utoc`/`.ucas` (parseo de
+  header, tabla de bloques de compresión, directory index como listas enlazadas, parser de
+  paquete Zen, wrapper de compresión Oodle vía P/Invoke) dentro de
+  `src/DressCoder.Infrastructure/IoStore/`. Su autor verificó independientemente que su writer
+  reproduce un contenedor original byte a byte; nuestro puerto en C# fue re-validado con el mismo
+  criterio (ver `tools/roundtrip-test-v2/`) antes de confiar en él.
+- **Redistribución: permitida** (MIT). Se debe conservar el aviso de copyright del autor original
+  en los archivos derivados de su código (agregado como comentario de atribución en cada archivo
+  portado) y en la carpeta de créditos de la app distribuida.
 
 ## Oodle (oo2core_*.dll) — ⚠️ NO SE REDISTRIBUYE
 
