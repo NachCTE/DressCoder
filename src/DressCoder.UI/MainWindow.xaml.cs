@@ -1,23 +1,26 @@
-﻿using System.Text;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
+﻿using System.Windows;
+using DressCoder.UI.ViewModels;
 
 namespace DressCoder.UI;
 
 /// <summary>
-/// Interaction logic for MainWindow.xaml
+/// Shell window: hosts the sidebar navigation and the current screen's view
+/// (via DataTemplates registered in App.xaml). All navigation logic lives in
+/// <see cref="MainViewModel"/> / <see cref="Navigation.INavigationService"/>.
 /// </summary>
 public partial class MainWindow : Window
 {
-    public MainWindow()
+    public MainWindow(MainViewModel viewModel)
     {
         InitializeComponent();
+        DataContext = viewModel;
+    }
+
+    private void OnNavigationItemClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: Type viewModelType } && DataContext is MainViewModel viewModel)
+        {
+            viewModel.NavigateTo(viewModelType);
+        }
     }
 }

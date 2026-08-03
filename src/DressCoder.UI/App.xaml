@@ -1,9 +1,33 @@
-﻿<Application x:Class="DressCoder.UI.App"
+<Application x:Class="DressCoder.UI.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:DressCoder.UI"
-             StartupUri="MainWindow.xaml">
+             xmlns:converters="clr-namespace:DressCoder.UI.Converters"
+             xmlns:vm="clr-namespace:DressCoder.UI.ViewModels.Screens"
+             xmlns:views="clr-namespace:DressCoder.UI.Views.Screens">
     <Application.Resources>
-         
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+
+        <DataTemplate DataType="{x:Type vm:HomeViewModel}">
+            <views:HomeView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ImportViewModel}">
+            <views:ImportView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:AnalysisViewModel}">
+            <views:AnalysisView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ConfigurationViewModel}">
+            <views:ConfigurationView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:PreviewViewModel}">
+            <views:PreviewView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ExportViewModel}">
+            <views:ExportView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:LogViewModel}">
+            <views:LogView />
+        </DataTemplate>
     </Application.Resources>
 </Application>

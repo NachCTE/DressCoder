@@ -165,9 +165,24 @@ Se necesita un **diccionario PC00XX → nombre de personaje + PlayerType enum** 
 
 2. **¿El juego requiere el ContainerHeader para cargar un plugin?** Si un plugin nuevo generado con `pack-raw` (sin ContainerHeader) funciona, perfecto. Si no, necesitamos o copiar/adaptar el ContainerHeader de una plantilla o entender su formato.
 
-3. **¿Hay formato especial para el `.pak` IoStore?** El `.pak` de 3.5 KB — ¿es una cabecera estándar de UE IoStore? Si es estándar, `repak` debería poder generarlo.
+3. ~~¿Hay formato especial para el `.pak` IoStore?~~ **RESUELTO** (ver sección 5.5): el `.pak` de Dresscode NO es un contenedor IoStore vacío, es un **pak legacy real** (repak V11) generado por Alpakit, con 3 archivos: `AssetRegistry.bin`, `Config/AccessTransformers.ini`, `Config/PluginSettings.ini`, mount point `../../../End/Mods/{PluginName}/`. `repak pack` puede generarlo. Las dos `.ini` son boilerplate genérico (idénticas para cualquier plugin) — se pueden embeber como plantilla estática. El `AssetRegistry.bin` sí contiene datos específicos del mod (rutas de assets, stats de mesh, nombres de materiales) — queda abierta la incógnita 5 sobre cómo generarlo/parchearlo.
 
 4. **¿Qué contiene el `AerithNier.uasset` (el ModData) exactamente?** Necesitamos entender qué campos hay y cómo parchearlos para crear uno para un nuevo mod.
+
+5. **¿Cómo se genera/parchea `AssetRegistry.bin`?** (nueva, ver 5.5) Contiene referencias a paths de assets, conteos de bones/vértices/triángulos/morph targets, nombres de materiales y texturas. Falta determinar si FF7RML/el juego lo necesita para que el mod cargue correctamente, o si es solo un cache de editor que puede omitirse o dejarse desactualizado sin romper nada (test necesario: ¿el mod funciona en juego si este archivo falta o está "vacío"?).
+
+### 5.5 El `.pak` legacy: contenido real, no un stub vacío
+
+Comparando `repak info`/`list` sobre el `.pak` de un mod Dresscode real vs. el de un replacer:
+
+| | Dresscode (`AerithNierEC...pak`) | Replacer (`ZAerithBahamutRobeStandard_P.pak`) |
+|---|---|---|
+| mount point | `../../../End/Mods/AerithNierEC/` | `/` |
+| version | V11 (Fnv64BugFix) | V11 (Fnv64BugFix) |
+| compresión | None | None |
+| archivos | 3 (`AssetRegistry.bin`, 2 `.ini`) | 0 |
+
+El replacer no usa su `.pak` para nada (todo el contenido real vive en `.utoc`/`.ucas`); es el patrón estándar de IoStore donde el `.pak` acompañante queda vacío. El plugin Dresscode, en cambio, sí usa su `.pak` legacy para 3 archivos de metadata/config que Alpakit siempre genera al empaquetar un plugin de UE. Esto confirma que `repak pack` (con mount point y version correctos) es la herramienta adecuada para generar este `.pak`, sin necesidad de "adivinar" un formato binario opaco.
 
 ---
 

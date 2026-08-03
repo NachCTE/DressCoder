@@ -5,8 +5,37 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:DressCoder.UI"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
+        Title="DressCoder" Height="600" Width="960" WindowStartupLocation="CenterScreen">
     <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
+        <Border Grid.Column="0" Background="#181818">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="16">
+                    <TextBlock Text="DressCoder" FontSize="18" FontWeight="Bold" Foreground="White" />
+                    <TextBlock Text="Replacer → Dresscode" FontSize="11" Foreground="Gray" />
+                </StackPanel>
+
+                <ItemsControl ItemsSource="{Binding NavigationItems}" Margin="8,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Padding="10,8" Margin="0,2" HorizontalContentAlignment="Left"
+                                    Background="Transparent" BorderThickness="0" Foreground="White"
+                                    Click="OnNavigationItemClick" Tag="{Binding ViewModelType}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Glyph}" Margin="0,0,10,0" />
+                                    <TextBlock Text="{Binding Title}" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </DockPanel>
+        </Border>
+
+        <ContentControl Grid.Column="1" Content="{Binding CurrentViewModel}" />
     </Grid>
 </Window>
