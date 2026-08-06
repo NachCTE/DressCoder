@@ -1,90 +1,27 @@
-"""Small Tkinter frontend for the patcher -> variants -> Dresscode workflow."""
+"""Tkinter view for the patcher -> variants -> Dresscode workflow."""
 
 from __future__ import annotations
 
-import json
-import hashlib
-import re
-import shutil
-import subprocess
-import sys
-import tempfile
 import threading
 import urllib.error
-import uuid
-import urllib.request
 import zipfile
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, List, Optional, Tuple
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Callable
 
-
-ROOT = Path(__file__).resolve().parent
-PATCHER = ROOT / "tools" / "patcher"
-PATCH = PATCHER / "patch.py"
-PARTS = PATCHER / "devtools" / "parts.py"
-CONVERT = PATCHER / "convert.py"
-PATCHER_RELEASE = "v1.5.0"
-PATCHER_DOWNLOAD_URL = (
-    "https://github.com/nikolaybutnik/FFVII-Rebirth-Mesh-Patcher/releases/"
-    f"download/{PATCHER_RELEASE}/FFVII-Rebirth-Mesh-Patcher-v1.5.0.zip"
+from frontend_services import (
+    PATCHER_RELEASE,
+    Part,
+    PatcherService,
+    WorkflowService,
+    patcher_ready,
 )
-PATCHER_SHA256 = "353e90aaa4f3b5b8cda26a7f82451836d23e67260c3260da8b9b700dfe53b3d4"
-
-
-@dataclass
-class Part:
-    number: int
-    name: str
-    model: str
-
-
-def parse_parts(output: str) -> list[Part]:
-    """Parse parts.py's model headers and flat, numbered part rows."""
-    result: list[Part] = []
-    model = "unknown model"
-    header = re.compile(r"^\s{2,}(.+?)\s+\(([^()]*)\)\s*$")
-    row = re.compile(
-        r"^\s+(\d+)\s{2,}(.+?)\s{2,}[\d,]+\s{3,}(.+?)(?:\s+\[left out\])?\s*$"
-    )
-    for line in output.splitlines():
-        match = header.match(line)
-        if match and not match.group(1).strip().startswith(("#", "(")):
-            model = match.group(1).strip()
-            continue
-        match = row.match(line)
-        if match:
-            result.append(Part(int(match.group(1)), match.group(2).strip(), model))
-    return result
-
-
-def run_command(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args, cwd=PATCHER, text=True, encoding="utf-8",
-        errors="replace", capture_output=True, check=False,
-    )
-
-
-def patcher_ready() -> bool:
-    return PATCH.exists() and PARTS.exists() and CONVERT.exists()
-
-
-def safe_extract(zip_path: Path, destination: Path) -> None:
-    destination = destination.resolve()
-    with zipfile.ZipFile(zip_path) as archive:
-        for member in archive.infolist():
-            target = (destination / member.filename).resolve()
-            if target != destination and destination not in target.parents:
-                raise RuntimeError(f"archive contains an unsafe path: {member.filename}")
-        archive.extractall(destination)
 
 
 class VariantDialog:
-    def __init__(self, parent: tk.Misc, parts: list[Part]):
+    def __init__(self, parent: tk.Misc, parts: List[Part]):
         self.result = None
-        self.done = threading.Event()
         self.window = tk.Toplevel(parent)
         self.window.title("Create variants")
         self.window.geometry("760x520")
@@ -93,10 +30,9 @@ class VariantDialog:
         self.vars = [(part, tk.BooleanVar(value=False)) for part in parts]
         self.primary_model = parts[0].model
         self.variant_name = tk.StringVar()
-
-        ttk.Label(self.window, text="Select parts to omit, then name and add a variant.").pack(
-            anchor="w", padx=12, pady=(12, 4)
-        )
+        ttk.Label(
+            self.window, text="Select parts to omit, then name and add a variant."
+        ).pack(anchor="w", padx=12, pady=(12, 4))
         ttk.Label(
             self.window,
             text=(
@@ -121,7 +57,6 @@ class VariantDialog:
                 variable=variable,
                 state="normal" if part.model == self.primary_model else "disabled",
             ).pack(anchor="w", pady=1)
-
         entry = ttk.Frame(self.window)
         entry.pack(fill="x", padx=12, pady=8)
         ttk.Label(entry, text="Variant name:").pack(side="left")
@@ -137,7 +72,9 @@ class VariantDialog:
             messagebox.showerror("Variant name", "Enter a variant name.", parent=self.window)
             return
         if any(name.casefold() == old.casefold() for old, _ in self.result or []):
-            messagebox.showerror("Variant name", "That variant name is already listed.", parent=self.window)
+            messagebox.showerror(
+                "Variant name", "That variant name is already listed.", parent=self.window
+            )
             return
         selected = [part.number for part, variable in self.vars if variable.get()]
         if self.result is None:
@@ -150,17 +87,13 @@ class VariantDialog:
         if self.result is None:
             self.result = []
         self.window.destroy()
-        self.done.set()
 
 
 class Frontend:
     WORKFLOW_STEPS = (
-        "Checking patch format",
-        "Patching or copying skin",
-        "Deciding whether to add variants",
-        "Listing and creating variants",
-        "Writing metadata",
-        "Converting and completing",
+        "Checking patch format", "Patching or copying skin",
+        "Deciding whether to add variants", "Listing and creating variants",
+        "Writing metadata", "Converting and completing",
     )
 
     def __init__(self, root: tk.Tk):
@@ -170,13 +103,10 @@ class Frontend:
         self.source = tk.StringVar()
         self.destination = tk.StringVar()
         self.skin_name = tk.StringVar()
-        self.start_button: ttk.Button
-        self.install_button: ttk.Button
-        self.dependencies_button: ttk.Button
         self.tool_status = tk.StringVar()
         self.step_text = tk.StringVar(value="Ready to start")
         self.progress = tk.DoubleVar(value=0)
-        self.log_lines: list[str] = []
+        self.log_lines = []
         self.detail_window = None
         self.detail_log = None
         self.build_ui()
@@ -193,9 +123,7 @@ class Frontend:
         tools = ttk.Frame(form)
         tools.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         ttk.Label(tools, textvariable=self.tool_status).pack(side="left")
-        self.install_button = ttk.Button(
-            tools, text="Install patcher", command=self.install_patcher
-        )
+        self.install_button = ttk.Button(tools, text="Install patcher", command=self.install_patcher)
         self.install_button.pack(side="right", padx=(6, 0))
         self.dependencies_button = ttk.Button(
             tools, text="Install dependencies", command=self.install_dependencies
@@ -211,33 +139,25 @@ class Frontend:
         status.pack(fill="x")
         ttk.Label(status, textvariable=self.step_text).pack(anchor="w")
         ttk.Progressbar(
-            status, variable=self.progress, maximum=len(self.WORKFLOW_STEPS),
-            mode="determinate",
-        ).pack(fill="x", pady=(6, 6))
-        ttk.Button(status, text="Detailed view", command=self.show_detailed_view).pack(
-            anchor="e"
-        )
+            status, variable=self.progress, maximum=len(self.WORKFLOW_STEPS), mode="determinate"
+        ).pack(fill="x", pady=6)
+        ttk.Button(status, text="Detailed view", command=self.show_detailed_view).pack(anchor="e")
 
     @staticmethod
-    def add_folder_row(
-        parent: ttk.Frame,
-        label: str,
-        variable: tk.StringVar,
-        command: Callable[[], None],
-        row: int,
-    ) -> None:
+    def add_folder_row(parent: ttk.Frame, label: str, variable: tk.StringVar,
+                       command: Callable[[], None], row: int) -> None:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=5)
         ttk.Entry(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=6)
         ttk.Button(parent, text="Browse…", command=command).grid(row=row, column=2)
 
-    def choose_source(self):
+    def choose_source(self) -> None:
         path = filedialog.askdirectory(title="Select source skin folder")
         if path:
             self.source.set(path)
             if not self.skin_name.get().strip():
                 self.skin_name.set(Path(path).name)
 
-    def choose_destination(self):
+    def choose_destination(self) -> None:
         path = filedialog.askdirectory(title="Select destination root")
         if path:
             self.destination.set(path)
@@ -245,8 +165,7 @@ class Frontend:
     def refresh_tool_status(self) -> None:
         installed = patcher_ready()
         self.tool_status.set(
-            f"Patcher {PATCHER_RELEASE}: "
-            + ("installed" if installed else "not installed")
+            f"Patcher {PATCHER_RELEASE}: " + ("installed" if installed else "not installed")
         )
         if hasattr(self, "install_button"):
             self.install_button.configure(state="disabled" if installed else "normal")
@@ -287,23 +206,25 @@ class Frontend:
             log.insert("end", "\n".join(self.log_lines) + "\n")
             log.see("end")
             log.configure(state="disabled")
-        close_button = ttk.Button(window, text="Close", command=window.destroy)
+        close_button = ttk.Button(window, text="Close")
         close_button.pack(pady=(0, 12))
 
-        def clear_detail_references() -> None:
+        def close() -> None:
             self.detail_window = None
             self.detail_log = None
-
-        def close() -> None:
-            clear_detail_references()
             window.destroy()
 
-        window.protocol("WM_DELETE_WINDOW", close)
         close_button.configure(command=close)
+        window.protocol("WM_DELETE_WINDOW", close)
 
     def set_step(self, number: int) -> None:
-        self.step_text.set(f"Step {number} of {len(self.WORKFLOW_STEPS)}: {self.WORKFLOW_STEPS[number - 1]}")
+        self.step_text.set(
+            f"Step {number} of {len(self.WORKFLOW_STEPS)}: {self.WORKFLOW_STEPS[number - 1]}"
+        )
         self.progress.set(number - 1)
+
+    def ui_log(self, text: str) -> None:
+        self.root.after(0, self.append_log, text)
 
     def ui_step(self, number: int) -> None:
         self.root.after(0, self.set_step, number)
@@ -312,7 +233,7 @@ class Frontend:
         event = threading.Event()
         result = []
 
-        def invoke():
+        def invoke() -> None:
             try:
                 result.append(callback())
             finally:
@@ -322,11 +243,20 @@ class Frontend:
         event.wait()
         return result[0] if result else None
 
+    def set_busy(self, busy: bool) -> None:
+        state = "disabled" if busy else "normal"
+        self.install_button.configure(state=state)
+        self.dependencies_button.configure(state=state if busy else (
+            "normal" if patcher_ready() else "disabled"
+        ))
+        self.start_button.configure(state=state if busy else (
+            "normal" if patcher_ready() else "disabled"
+        ))
+
     def start(self) -> None:
         if not patcher_ready():
             messagebox.showerror(
-                "Patcher missing",
-                "Install the FFVII Rebirth Mesh Patcher before starting.",
+                "Patcher missing", "Install the FFVII Rebirth Mesh Patcher before starting.",
                 parent=self.root,
             )
             return
@@ -343,7 +273,8 @@ class Frontend:
         try:
             if target.resolve().is_relative_to(source.resolve()):
                 messagebox.showerror(
-                    "Invalid folders", "The destination skin cannot be the source folder or inside it."
+                    "Invalid folders",
+                    "The destination skin cannot be the source folder or inside it.",
                 )
                 return
         except OSError as exc:
@@ -353,12 +284,32 @@ class Frontend:
             "Destination exists", f"{target} already exists. Replace it?", parent=self.root
         ):
             return
-        self.start_button.configure(state="disabled")
+        self.set_busy(True)
         self.set_step(1)
         self.append_log(f"Starting: {source} -> {target}")
-        threading.Thread(
-            target=self.worker, args=(source, destination, name, target), daemon=True
-        ).start()
+        service = WorkflowService(
+            self.ui_log, self.ui_step,
+            lambda parts: self.ui_call(lambda: self.show_variant_dialog(parts)),
+            lambda title, text: self.ui_call(
+                lambda: messagebox.askyesno(title, text, parent=self.root)
+            ),
+        )
+
+        def worker() -> None:
+            try:
+                service.run(source, destination, name, target)
+                self.root.after(0, self.progress.set, len(self.WORKFLOW_STEPS))
+                self.ui_call(lambda: messagebox.showinfo(
+                    "Done", "Dresscode conversion completed.", parent=self.root
+                ))
+            except Exception as exc:
+                self.ui_call(lambda: messagebox.showerror(
+                    "Process failed", str(exc), parent=self.root
+                ))
+            finally:
+                self.root.after(0, lambda: self.set_busy(False))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def install_patcher(self) -> None:
         if patcher_ready():
@@ -368,297 +319,52 @@ class Frontend:
                 parent=self.root,
             )
             return
-        self.install_button.configure(state="disabled")
-        self.dependencies_button.configure(state="disabled")
-        self.start_button.configure(state="disabled")
-        threading.Thread(target=self.install_patcher_worker, daemon=True).start()
+        self.set_busy(True)
 
-    def install_patcher_worker(self) -> None:
-        archive_path = None
-        staging = None
-        try:
-            self.ui_log(f"Downloading FFVII Rebirth Mesh Patcher {PATCHER_RELEASE}...")
-            with tempfile.NamedTemporaryFile(
-                prefix="dresscoder-patcher-", suffix=".zip", delete=False
-            ) as stream:
-                archive_path = Path(stream.name)
-                with urllib.request.urlopen(PATCHER_DOWNLOAD_URL, timeout=60) as response:
-                    while True:
-                        chunk = response.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        stream.write(chunk)
-            digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
-            if digest != PATCHER_SHA256:
-                raise RuntimeError(
-                    f"download checksum mismatch: expected {PATCHER_SHA256}, got {digest}"
-                )
+        def worker() -> None:
+            try:
+                PatcherService(self.ui_log).install()
+            except (OSError, RuntimeError, urllib.error.URLError, zipfile.BadZipFile) as exc:
+                self.ui_log(f"ERROR: patcher installation failed: {exc}")
+                self.ui_call(lambda: messagebox.showerror(
+                    "Patcher installation failed", str(exc), parent=self.root
+                ))
+            finally:
+                self.root.after(0, self.refresh_tool_status)
 
-            staging = Path(tempfile.mkdtemp(prefix="dresscoder-patcher-"))
-            safe_extract(archive_path, staging)
-            patch_candidates = [
-                path for path in staging.rglob("patch.py")
-                if (path.parent / "convert.py").is_file()
-                and (path.parent / "devtools" / "parts.py").is_file()
-            ]
-            if len(patch_candidates) != 1:
-                raise RuntimeError(
-                    "the release archive does not contain exactly one valid patcher"
-                )
-            PATCHER.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(patch_candidates[0].parent, PATCHER, dirs_exist_ok=True)
-            if not patcher_ready():
-                raise RuntimeError("patcher installation is incomplete")
-            self.ui_log(f"Patcher {PATCHER_RELEASE} installed.")
-            self.root.after(0, self.refresh_tool_status)
-        except (OSError, RuntimeError, urllib.error.URLError, zipfile.BadZipFile) as exc:
-            self.ui_log(f"ERROR: patcher installation failed: {exc}")
-            error_message = str(exc)
-            self.root.after(
-                0,
-                lambda: messagebox.showerror(
-                    "Patcher installation failed", error_message, parent=self.root
-                ),
-            )
-        finally:
-            if archive_path and archive_path.exists():
-                archive_path.unlink()
-            if staging and staging.exists():
-                shutil.rmtree(staging, ignore_errors=True)
-            self.root.after(0, self.refresh_tool_status)
+        threading.Thread(target=worker, daemon=True).start()
 
     def install_dependencies(self) -> None:
         if not patcher_ready():
             messagebox.showerror(
-                "Patcher missing",
-                "Install the patcher before installing its dependencies.",
+                "Patcher missing", "Install the patcher before installing its dependencies.",
                 parent=self.root,
             )
             return
-        requirements = PATCHER / "requirements.txt"
-        if not requirements.is_file():
-            messagebox.showerror(
-                "Requirements missing",
-                f"Could not find {requirements}.",
-                parent=self.root,
-            )
-            return
-        self.install_button.configure(state="disabled")
-        self.dependencies_button.configure(state="disabled")
-        self.start_button.configure(state="disabled")
-        threading.Thread(
-            target=self.install_dependencies_worker,
-            args=(requirements,),
-            daemon=True,
-        ).start()
+        self.set_busy(True)
 
-    def install_dependencies_worker(self, requirements: Path) -> None:
-        command = [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--disable-pip-version-check",
-            "-r",
-            str(requirements),
-        ]
-        self.ui_log("$ " + subprocess.list2cmdline(command))
-        completed = subprocess.run(
-            command,
-            cwd=PATCHER,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-            check=False,
-        )
-        output = (completed.stdout + completed.stderr).strip()
-        if output:
-            self.ui_log(output)
-        if completed.returncode == 0:
-            self.ui_log("Dependencies installed.")
-        else:
-            self.ui_log(
-                f"ERROR: dependency installation failed with exit code "
-                f"{completed.returncode}"
-            )
-            self.root.after(
-                0,
-                lambda: messagebox.showerror(
-                    "Dependency installation failed",
-                    f"pip exited with code {completed.returncode}.",
-                    parent=self.root,
-                ),
-            )
-        self.root.after(0, self.refresh_tool_status)
-
-    def worker(self, source: Path, destination: Path, name: str, target: Path) -> None:
-        try:
-            if target.exists():
-                shutil.rmtree(target)
-            work = destination / f".dresscoder-work-{uuid.uuid4().hex}"
+        def worker() -> None:
             try:
-                self.ui_step(1)
-                listing_args = [
-                    sys.executable, str(PATCH), "--path", str(source),
-                    "--out", str(work), "--list",
-                ]
-                self.ui_log("$ " + subprocess.list2cmdline(listing_args))
-                listing = run_command(listing_args)
-                self.ui_log((listing.stdout + listing.stderr).strip())
-                if listing.returncode != 0:
-                    raise RuntimeError(f"patch listing failed with exit code {listing.returncode}")
-                needs_patch = "needs patching" in listing.stdout.lower()
-                self.ui_step(2)
-                if needs_patch:
-                    self.log_command([sys.executable, str(PATCH), "--path", str(source),
-                                      "--out", str(target), "--all"])
-                else:
-                    self.ui_log("No patch required; copying source without modification.")
-                    shutil.copytree(source, target)
-                self.ui_step(3)
-                if self.ui_call(lambda: messagebox.askyesno(
-                    "Variants", "Do you want to add variants?", parent=self.root
-                )):
-                    self.make_variants(target)
-                else:
-                    self.ui_step(4)
-                self.ui_step(5)
-                self.write_metadata(target, name)
-                self.ui_step(6)
-                self.convert_to_dresscode(target)
-                self.ui_log("Finished successfully.")
-                self.root.after(0, self.progress.set, len(self.WORKFLOW_STEPS))
-                self.ui_call(lambda: messagebox.showinfo("Done", "Dresscode conversion completed.",
-                                                         parent=self.root))
-            finally:
-                if work.exists():
-                    try:
-                        shutil.rmtree(work)
-                    except OSError as exc:
-                        self.ui_log(f"WARNING: could not remove work folder {work}: {exc}")
-        except Exception as exc:
-            self.ui_log(f"ERROR: {type(exc).__name__}: {exc}")
-            self.ui_call(lambda: messagebox.showerror("Process failed", str(exc), parent=self.root))
-        finally:
-            self.root.after(0, lambda: self.start_button.configure(state="normal"))
-
-    def ui_log(self, text: str) -> None:
-        self.root.after(0, self.append_log, text)
-
-    def log_command(self, args: list[str]) -> None:
-        self.ui_log("$ " + subprocess.list2cmdline(args))
-        completed = run_command(args)
-        output = (completed.stdout + completed.stderr).strip()
-        if output:
-            self.ui_log(output)
-        if completed.returncode != 0:
-            raise RuntimeError(f"command failed with exit code {completed.returncode}")
-
-    def convert_to_dresscode(self, target: Path) -> None:
-        """Run the official converter and relocate its sibling output."""
-        staging = Path(tempfile.mkdtemp(
-            prefix=".dresscoder-convert-", dir=str(target.parent)
-        ))
-        staged_source = staging / target.name
-        output = None
-        try:
-            shutil.move(str(target), str(staged_source))
-            command = [sys.executable, str(CONVERT), str(staged_source), "--yes"]
-            self.log_command(command)
-            candidates = sorted(
-                path for path in staging.iterdir()
-                if path.is_dir() and path.name.endswith(" (Dresscode)")
-            )
-            if len(candidates) != 1:
-                raise RuntimeError(
-                    "the converter did not produce exactly one Dresscode folder"
-                )
-            output = candidates[0]
-            shutil.move(str(staged_source), str(target))
-            destination = target / "dresscode"
-            if destination.exists():
-                shutil.rmtree(destination)
-            shutil.move(str(output), str(destination))
-        except Exception:
-            if not target.exists() and staged_source.exists():
-                shutil.move(str(staged_source), str(target))
-            raise
-        finally:
-            if staging.exists():
-                shutil.rmtree(staging, ignore_errors=True)
-
-    def make_variants(self, target: Path) -> None:
-        self.ui_step(4)
-        command = [sys.executable, str(PARTS), str(target), "--list"]
-        self.ui_log("$ " + subprocess.list2cmdline(command))
-        listed = run_command(command)
-        self.ui_log((listed.stdout + listed.stderr).strip())
-        if listed.returncode != 0:
-            raise RuntimeError(f"parts listing failed with exit code {listed.returncode}")
-        parts = parse_parts(listed.stdout + listed.stderr)
-        if not parts:
-            raise RuntimeError("parts.py returned no editable parts.")
-        variants = self.ui_call(lambda: self.show_variant_dialog(parts))
-        primary_model = parts[0].model
-        allowed_numbers = {
-            part.number for part in parts if part.model == primary_model
-        }
-        for variant, omitted in variants or []:
-            invalid = sorted(set(omitted) - allowed_numbers)
-            if invalid:
-                raise RuntimeError(
-                    "variant selection contains parts from a secondary model: "
-                    + ", ".join(map(str, invalid))
-                )
-            if Path(variant).name != variant or variant in (".", ".."):
-                raise RuntimeError(f"invalid variant name: {variant!r}")
-            out = target / "Variants" / variant
-            if out.exists():
-                allowed = self.ui_call(lambda: messagebox.askyesno(
-                    "Variant exists", f"{out} already exists. Replace it?", parent=self.root
+                code = PatcherService(self.ui_log).install_dependencies()
+                if code:
+                    self.ui_call(lambda: messagebox.showerror(
+                        "Dependency installation failed",
+                        f"pip exited with code {code}.", parent=self.root
+                    ))
+            except RuntimeError as exc:
+                self.ui_log("ERROR: dependency installation failed: " + str(exc))
+                self.ui_call(lambda: messagebox.showerror(
+                    "Dependency installation failed", str(exc), parent=self.root
                 ))
-                if not allowed:
-                    raise RuntimeError(f"refused to overwrite existing variant: {out}")
-                shutil.rmtree(out)
-            args = [sys.executable, str(PARTS), str(target), "--omit",
-                    ",".join(map(str, omitted)) or "none", "--out", str(out)]
-            self.log_command(args)
+            finally:
+                self.root.after(0, self.refresh_tool_status)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def show_variant_dialog(self, parts):
         dialog = VariantDialog(self.root, parts)
         self.root.wait_window(dialog.window)
         return dialog.result or []
-
-    @staticmethod
-    def write_metadata(target: Path, name: str) -> None:
-        path = target / "dresscode.json"
-        data = {}
-        if path.is_file():
-            with path.open("r", encoding="utf-8") as stream:
-                data = json.load(stream)
-        data.update({
-            "name": name,
-            "author": data.get("author", ""),
-            "description": data.get("description", ""),
-            "category": data.get("category", "Outfit"),
-            "version": data.get("version", "1.0.0"),
-            "stackable": data.get("stackable", False),
-        })
-        outfits = [{"folder": ".", "name": name, "description": ""}]
-        variants = target / "Variants"
-        if variants.is_dir():
-            for folder in sorted(variants.iterdir(), key=lambda p: p.name.casefold()):
-                if folder.is_dir():
-                    outfits.append({
-                        "folder": f"Variants/{folder.name}",
-                        "name": folder.name,
-                        "description": "",
-                    })
-        data["outfits"] = outfits
-        with path.open("w", encoding="utf-8") as stream:
-            json.dump(data, stream, indent=2, ensure_ascii=False)
-            stream.write("\n")
 
 
 if __name__ == "__main__":
