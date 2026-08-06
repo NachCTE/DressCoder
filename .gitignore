@@ -78,6 +78,17 @@ temp/
 staging/
 
 ########################################
+# Salidas generadas por las herramientas de spike en tools/*/output, tools/*/pak_*
+# y el plugin de prueba ensamblado — artefactos de diagnóstico, no fuente.
+########################################
+tools/*/output/
+tools/*/pak_extract/
+tools/*/pak_stage*/
+tools/*/pak_out/
+tools/test-plugin-output/
+tools/diag-ucas/*.bin
+
+########################################
 # Secrets / configuración local de máquina
 ########################################
 appsettings.local.json

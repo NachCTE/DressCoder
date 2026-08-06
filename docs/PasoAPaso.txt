@@ -1,0 +1,52 @@
+El frontend debe proveer un selector de carpeta destino (destinationPath) y un selector para la carpeta origen del mod (sourceSkinPath)
+
+Un boton para iniciar el proceso de parcheo:
+
+VERIFICAR SI NECESITA SER PARCHEADO ('needs patching' presente en la respuesta)
+python patch.py --path "sourceSkinPath" --out "destinationPath"
+
+SI NO HACE FALTA PARCHEAR:
+robocopy "sourceSkinPath" "destinationPath" /E
+
+PARCHEAR
+python patch.py --path "sourceSkinPath" --out "destinationPath\skinName" --all
+
+PREGUNTAR SI QUIERE AGREGAR VARIANTES A LA SKIN (se pueden crear varias):
+
+- CASO SI:
+    LISTAR TODAS LAS PARTES DE UNA SKIN
+    python devtools\parts.py "destinationPath\skinName" --list
+
+    mostrar las partes y sus partId, y permitir al usuario seleccionar las partes que quiere omitir para crear la variante con un checkbox o algo similar
+    Solo se habilitan partes del modelo principal. Las partes de modelos
+    `_Condition` u otros slots se mantienen iguales entre la skin base y sus
+    variantes para evitar conflictos al convertir a Dresscode.
+
+    preguntar el nombre de la variante a crear (variantName)
+
+    CREAR LA VARIANTE DE LA SKIN OMITIENDO PARTES
+    python devtools\parts.py "destinationPath\skinName" --omit {comma separated partId} --out "destinationPath\skinName\Variants\variantName"
+
+- CASO NO: Evitar los pasos de crear variantes y continuar con el siguiente paso:
+
+CREAR dresscode.json EN destinationPath\skinName:
+{
+  "name": "skinName",
+  "author": "",
+  "description": "",
+  "category": "Outfit",
+  "version": "1.0.0",
+  "stackable": false,
+  "outfits": [
+    {
+      "folder": ".",
+      "name": "skinName",
+      "description": ""
+    }
+  ]
+}
+
+OJO: el outfit default debe tener como folder "." para que tome la skin principal, y no una variante. Agregar un outfit por cada variante creada, con el folder apuntando a "Variants/nombre" usando barras `/`.
+
+CONVERTIR A DRESSCODE:
+python convert.py "destinationPath\skinName" --out "destinationPath\skinName\dresscode" --yes
