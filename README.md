@@ -21,6 +21,12 @@ DressCoder automatiza el flujo de trabajo del patcher oficial:
 
 ## Instalación
 
+Instala Python 3.9 o superior y verifica que esté disponible como `python`:
+
+```powershell
+python --version
+```
+
 Desde la carpeta del proyecto:
 
 ```powershell
