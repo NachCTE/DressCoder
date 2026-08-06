@@ -266,7 +266,13 @@ class WorkflowService:
         output = None
         try:
             shutil.move(str(target), str(staged_source))
-            self.run_logged([sys.executable, str(CONVERT), str(staged_source), "--yes"])
+            converted = self.run_logged([
+                sys.executable, str(CONVERT), str(staged_source), "--yes"
+            ])
+            if converted.returncode != 0:
+                raise RuntimeError(
+                    f"converter failed with exit code {converted.returncode}"
+                )
             candidates = sorted(
                 path for path in staging.iterdir()
                 if path.is_dir() and path.name.endswith(" (Dresscode)")

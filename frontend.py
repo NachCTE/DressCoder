@@ -123,6 +123,7 @@ class VariantDialog:
 
 
 class Frontend:
+    PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
     CACHE_PATH = (
         Path.home() / "AppData" / "Local" / "DressCoder" / "settings.json"
     )
@@ -544,13 +545,27 @@ class Frontend:
         path = filedialog.askopenfilename(
             title=self.t("select_photo"),
             filetypes=[
-                ("Image files", "*.png *.jpg *.jpeg"),
                 ("PNG files", "*.png"),
-                ("JPEG files", "*.jpg *.jpeg"),
-                ("All files", "*.*"),
             ],
         )
         if path:
+            selected = Path(path)
+            try:
+                is_png = (
+                    selected.suffix.lower() == ".png"
+                    and selected.read_bytes()[:8] == self.PNG_SIGNATURE
+                )
+            except OSError as exc:
+                messagebox.showerror(
+                    self.t("invalid_photo"), str(exc), parent=self.root
+                )
+                return
+            if not is_png:
+                messagebox.showerror(
+                    self.t("invalid_photo"), self.t("png_required"),
+                    parent=self.root,
+                )
+                return
             self.photo.set(path)
 
     def clear_photo(self) -> None:
@@ -708,6 +723,23 @@ class Frontend:
         if photo is not None and not photo.is_file():
             messagebox.showerror(self.t("input_required"), self.t("select_photo"))
             return
+        if photo is not None:
+            try:
+                is_png = (
+                    photo.suffix.lower() == ".png"
+                    and photo.read_bytes()[:8] == self.PNG_SIGNATURE
+                )
+            except OSError as exc:
+                messagebox.showerror(
+                    self.t("invalid_photo"), str(exc), parent=self.root
+                )
+                return
+            if not is_png:
+                messagebox.showerror(
+                    self.t("invalid_photo"), self.t("png_required"),
+                    parent=self.root,
+                )
+                return
         if Path(name).name != name or name in (".", ".."):
             messagebox.showerror(self.t("invalid_name"), self.t("single_folder_name"))
             return
