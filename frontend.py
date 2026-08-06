@@ -33,18 +33,21 @@ class VariantDialog:
         self.vars = [(part, tk.BooleanVar(value=False)) for part in parts]
         self.primary_model = parts[0].model
         self.variant_name = tk.StringVar()
+        header = ttk.Frame(self.window, style="Card.TFrame", padding=(24, 20))
+        header.pack(fill="x", padx=24, pady=(24, 12))
         ttk.Label(
-            self.window, text=self.t("variant_intro")
-        ).pack(anchor="w", padx=24, pady=(24, 4))
+            header, text=self.t("variant_intro"), style="Section.TLabel"
+        ).pack(anchor="w")
         ttk.Label(
-            self.window,
+            header,
             text=self.t("variant_rule", model=self.primary_model),
+            style="CardMuted.TLabel",
             wraplength=720,
-        ).pack(anchor="w", padx=24, pady=(0, 16))
-        frame = ttk.Frame(self.window, style="Card.TFrame", padding=12)
-        frame.pack(fill="both", expand=True, padx=24)
+        ).pack(anchor="w", pady=(8, 0))
+        frame = ttk.Frame(self.window, padding=12)
+        frame.pack(fill="both", expand=True, padx=24, pady=(0, 12))
         canvas = tk.Canvas(
-            frame, highlightthickness=0, bg=Frontend.COLORS["card"],
+            frame, highlightthickness=0, bg=Frontend.COLORS["background"],
             bd=0, relief="flat",
         )
         scroll = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
@@ -55,14 +58,22 @@ class VariantDialog:
         canvas.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
         for part, variable in self.vars:
-            ttk.Checkbutton(
+            checkbutton = ttk.Checkbutton(
                 inner, text=f"{part.number}: {part.name}  [{part.model}]",
                 variable=variable,
+                style="Variant.TCheckbutton",
                 state="normal" if part.model == self.primary_model else "disabled",
-            ).pack(anchor="w", pady=1)
-        entry = ttk.Frame(self.window)
-        entry.pack(fill="x", padx=24, pady=16)
-        ttk.Label(entry, text=self.t("variant_name")).pack(side="left")
+            )
+            checkbutton.pack(anchor="w", fill="x", pady=3)
+            checkbutton.bind("<MouseWheel>", lambda event: self._scroll_parts(canvas, event))
+        inner.bind("<MouseWheel>", lambda event: self._scroll_parts(canvas, event))
+        canvas.bind("<MouseWheel>", lambda event: self._scroll_parts(canvas, event))
+        self.window.geometry("760x620")
+        entry = ttk.Frame(self.window, style="Card.TFrame", padding=(16, 12))
+        entry.pack(fill="x", padx=24, pady=(0, 12))
+        ttk.Label(
+            entry, text=self.t("variant_name"), style="Card.TLabel"
+        ).pack(side="left")
         ttk.Entry(entry, textvariable=self.variant_name, width=35).pack(side="left", padx=6)
         ttk.Button(entry, text=self.t("add_variant"), style="Secondary.TButton",
                    command=self.add).pack(side="left")
@@ -73,7 +84,7 @@ class VariantDialog:
             fg=Frontend.COLORS["text"], selectbackground=Frontend.COLORS["accent"],
             selectforeground=Frontend.COLORS["text"], relief="flat", bd=0,
         )
-        self.listbox.pack(fill="x", padx=24, pady=(0, 24))
+        self.listbox.pack(fill="x", padx=24, pady=(0, 24), ipady=4)
 
     def add(self) -> None:
         name = self.variant_name.get().strip()
@@ -99,6 +110,11 @@ class VariantDialog:
 
     def t(self, key: str, **values: object) -> str:
         return UI_TEXT[self.language][key].format(**values)
+
+    @staticmethod
+    def _scroll_parts(canvas: tk.Canvas, event: tk.Event) -> str:
+        canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        return "break"
 
     def finish(self) -> None:
         if self.result is None:
@@ -304,7 +320,24 @@ class Frontend:
                         indicatorcolor=colors["input"])
         style.map("TCheckbutton", background=[("active", colors["card"])],
                   indicatorbackground=[("selected", colors["accent"])])
-        style.configure("Modern.Horizontal.TProgressbar", troughcolor=colors["input"],
+        style.configure(
+            "Variant.TCheckbutton",
+            background=colors["background"],
+            foreground=colors["text"],
+            indicatorbackground=colors["input"],
+            indicatorcolor=colors["input"],
+            padding=(6, 3),
+        )
+        style.map(
+            "Variant.TCheckbutton",
+            background=[("active", colors["background"])],
+            foreground=[("disabled", colors["subtle"])],
+            indicatorbackground=[
+                ("disabled", colors["card_alt"]),
+                ("selected", colors["accent"]),
+            ],
+        )
+        style.configure("Modern.Horizontal.TProgressbar", troughcolor="#171717",
                         background=colors["accent"], bordercolor=colors["input"],
                         lightcolor=colors["accent"], darkcolor=colors["accent"],
                         thickness=6)
@@ -354,11 +387,23 @@ class Frontend:
         canvas.configure(yscrollcommand=vscroll.set)
 
         def _on_mousewheel(event) -> None:
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            if content.winfo_reqheight() > canvas.winfo_height():
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def _update_scrollbar(_event=None) -> None:
+            canvas.update_idletasks()
+            if content.winfo_reqheight() > canvas.winfo_height():
+                if not vscroll.winfo_ismapped():
+                    vscroll.pack(side="right", fill="y")
+            elif vscroll.winfo_ismapped():
+                vscroll.pack_forget()
+            canvas.configure(scrollregion=canvas.bbox("all"))
 
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        content.bind("<Configure>", _update_scrollbar, add="+")
+        canvas.bind("<Configure>", _update_scrollbar, add="+")
         canvas.pack(side="left", fill="both", expand=True)
-        vscroll.pack(side="right", fill="y")
+        self.root.after_idle(_update_scrollbar)
 
         header = ttk.Frame(content)
         header.pack(fill="x", padx=36, pady=(32, 16))
@@ -395,25 +440,25 @@ class Frontend:
             row=6, column=0, columnspan=3, sticky="ew", pady=10
         )
         ttk.Label(form, text=self.t("author"), style="Card.TLabel").grid(
-            row=7, column=0, sticky="w", pady=7
+            row=7, column=0, sticky="w", pady=(11, 6)
         )
         ttk.Entry(form, textvariable=self.author).grid(
-            row=7, column=1, columnspan=2, sticky="ew", padx=(16, 0)
+            row=7, column=1, columnspan=2, sticky="ew", padx=(16, 0), pady=(11, 6)
         )
         ttk.Label(form, text=self.t("description"), style="Card.TLabel").grid(
-            row=8, column=0, sticky="w", pady=7
+            row=8, column=0, sticky="w", pady=(6, 6)
         )
         ttk.Entry(form, textvariable=self.description).grid(
-            row=8, column=1, columnspan=2, sticky="ew", padx=(16, 0)
+            row=8, column=1, columnspan=2, sticky="ew", padx=(16, 0), pady=(6, 6)
         )
         ttk.Label(form, text=self.t("photo"), style="Card.TLabel").grid(
-            row=9, column=0, sticky="w", pady=7
+            row=9, column=0, sticky="w", pady=(6, 11)
         )
         ttk.Entry(form, textvariable=self.photo, state="readonly").grid(
-            row=9, column=1, sticky="ew", padx=(16, 8)
+            row=9, column=1, sticky="ew", padx=(16, 8), pady=(6, 11)
         )
         photo_actions = ttk.Frame(form, style="Card.TFrame")
-        photo_actions.grid(row=9, column=2, sticky="e")
+        photo_actions.grid(row=9, column=2, sticky="e", pady=(6, 11))
         ttk.Button(
             photo_actions, text=self.t("photo_browse"), style="Secondary.TButton",
             command=self.choose_photo,
