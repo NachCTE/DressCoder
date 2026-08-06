@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, font as tkfont, messagebox, ttk
 
 from frontend_services import (
     PATCHER_RELEASE,
@@ -23,8 +23,9 @@ class VariantDialog:
     def __init__(self, parent: tk.Misc, parts: List[Part]):
         self.result = None
         self.window = tk.Toplevel(parent)
-        self.window.title("Create variants")
-        self.window.geometry("760x520")
+        self.window.title("Create variants | DressCoder")
+        self.window.geometry("760x560")
+        self.window.configure(bg=Frontend.COLORS["background"])
         self.window.transient(parent)
         self.window.protocol("WM_DELETE_WINDOW", self.finish)
         self.vars = [(part, tk.BooleanVar(value=False)) for part in parts]
@@ -32,7 +33,7 @@ class VariantDialog:
         self.variant_name = tk.StringVar()
         ttk.Label(
             self.window, text="Select parts to omit, then name and add a variant."
-        ).pack(anchor="w", padx=12, pady=(12, 4))
+        ).pack(anchor="w", padx=24, pady=(24, 4))
         ttk.Label(
             self.window,
             text=(
@@ -40,10 +41,13 @@ class VariantDialog:
                 "Condition and secondary models stay identical between outfits."
             ),
             wraplength=720,
-        ).pack(anchor="w", padx=12, pady=(0, 8))
-        frame = ttk.Frame(self.window)
-        frame.pack(fill="both", expand=True, padx=12)
-        canvas = tk.Canvas(frame, highlightthickness=0)
+        ).pack(anchor="w", padx=24, pady=(0, 16))
+        frame = ttk.Frame(self.window, style="Card.TFrame", padding=12)
+        frame.pack(fill="both", expand=True, padx=24)
+        canvas = tk.Canvas(
+            frame, highlightthickness=0, bg=Frontend.COLORS["card"],
+            bd=0, relief="flat",
+        )
         scroll = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
         inner = ttk.Frame(canvas)
         inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -58,13 +62,19 @@ class VariantDialog:
                 state="normal" if part.model == self.primary_model else "disabled",
             ).pack(anchor="w", pady=1)
         entry = ttk.Frame(self.window)
-        entry.pack(fill="x", padx=12, pady=8)
+        entry.pack(fill="x", padx=24, pady=16)
         ttk.Label(entry, text="Variant name:").pack(side="left")
         ttk.Entry(entry, textvariable=self.variant_name, width=35).pack(side="left", padx=6)
-        ttk.Button(entry, text="Add variant", command=self.add).pack(side="left")
-        ttk.Button(entry, text="Finish", command=self.finish).pack(side="right")
-        self.listbox = tk.Listbox(self.window, height=4)
-        self.listbox.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(entry, text="Add variant", style="Secondary.TButton",
+                   command=self.add).pack(side="left")
+        ttk.Button(entry, text="Finish", style="Accent.TButton",
+                   command=self.finish).pack(side="right")
+        self.listbox = tk.Listbox(
+            self.window, height=4, bg=Frontend.COLORS["input"],
+            fg=Frontend.COLORS["text"], selectbackground=Frontend.COLORS["accent"],
+            selectforeground=Frontend.COLORS["text"], relief="flat", bd=0,
+        )
+        self.listbox.pack(fill="x", padx=24, pady=(0, 24))
 
     def add(self) -> None:
         name = self.variant_name.get().strip()
@@ -90,6 +100,20 @@ class VariantDialog:
 
 
 class Frontend:
+    COLORS = {
+        "background": "#111318",
+        "card": "#1a1d23",
+        "card_alt": "#20242c",
+        "input": "#252a33",
+        "border": "#303641",
+        "text": "#f3f4f6",
+        "muted": "#a7adb8",
+        "accent": "#4cc2ff",
+        "accent_hover": "#75d0ff",
+        "success": "#6ed7a0",
+        "danger": "#ff8f8f",
+    }
+
     WORKFLOW_STEPS = (
         "Checking patch format", "Patching or copying skin",
         "Deciding whether to add variants", "Listing and creating variants",
@@ -99,7 +123,7 @@ class Frontend:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("DressCoder")
-        self.root.geometry("850x650")
+        self.root.geometry("900x720")
         self.source = tk.StringVar()
         self.destination = tk.StringVar()
         self.skin_name = tk.StringVar()
@@ -109,46 +133,138 @@ class Frontend:
         self.log_lines = []
         self.detail_window = None
         self.detail_log = None
+        self.configure_theme()
         self.build_ui()
         self.refresh_tool_status()
 
+    def configure_theme(self) -> None:
+        colors = self.COLORS
+        self.root.configure(bg=colors["background"])
+        self.fonts = {
+            "body": tkfont.Font(self.root, family="Segoe UI", size=10),
+            "title": tkfont.Font(
+                self.root, family="Segoe UI Semibold", size=24, weight="bold"
+            ),
+            "subtitle": tkfont.Font(self.root, family="Segoe UI", size=10),
+            "section": tkfont.Font(
+                self.root, family="Segoe UI Semibold", size=11, weight="bold"
+            ),
+            "button": tkfont.Font(
+                self.root, family="Segoe UI Semibold", size=10, weight="bold"
+            ),
+        }
+        self.root.option_add("*Font", self.fonts["body"])
+        style = ttk.Style(self.root)
+        style.theme_use("clam")
+        style.configure(".", background=colors["background"], foreground=colors["text"])
+        style.configure("Card.TFrame", background=colors["card"])
+        style.configure("Muted.TLabel", foreground=colors["muted"],
+                        background=colors["background"])
+        style.configure("Card.TLabel", foreground=colors["text"],
+                        background=colors["card"])
+        style.configure("CardMuted.TLabel", foreground=colors["muted"],
+                        background=colors["card"])
+        style.configure("Title.TLabel", font=self.fonts["title"],
+                        foreground=colors["text"], background=colors["background"])
+        style.configure("Subtitle.TLabel", font=self.fonts["subtitle"],
+                        foreground=colors["muted"], background=colors["background"])
+        style.configure("Section.TLabel", font=self.fonts["section"],
+                        foreground=colors["text"], background=colors["card"])
+        style.configure("TEntry", fieldbackground=colors["input"],
+                        foreground=colors["text"], insertcolor=colors["text"],
+                        bordercolor=colors["border"], lightcolor=colors["border"],
+                        darkcolor=colors["border"], padding=8)
+        style.map("TEntry", bordercolor=[("focus", colors["accent"])])
+        style.configure("TButton", font=self.fonts["button"], padding=(14, 9),
+                        background=colors["card_alt"], foreground=colors["text"],
+                        bordercolor=colors["border"])
+        style.map("TButton", background=[("active", colors["border"])])
+        style.configure("Secondary.TButton", background=colors["card_alt"],
+                        foreground=colors["text"])
+        style.configure("Accent.TButton", background=colors["accent"],
+                        foreground="#071016", borderwidth=0)
+        style.map("Accent.TButton", background=[("active", colors["accent_hover"])])
+        style.configure("TCheckbutton", background=colors["card"],
+                        foreground=colors["text"], indicatorbackground=colors["input"])
+        style.map("TCheckbutton", background=[("active", colors["card"])])
+        style.configure("Modern.Horizontal.TProgressbar", troughcolor=colors["input"],
+                        background=colors["accent"], bordercolor=colors["input"],
+                        lightcolor=colors["accent"], darkcolor=colors["accent"],
+                        thickness=8)
+        style.configure("TScrollbar", background=colors["card_alt"],
+                        troughcolor=colors["card"], bordercolor=colors["card"])
+
     def build_ui(self) -> None:
-        form = ttk.Frame(self.root, padding=12)
-        form.pack(fill="x")
-        self.add_folder_row(form, "Source skin folder:", self.source, self.choose_source, 0)
-        self.add_folder_row(form, "Destination root:", self.destination, self.choose_destination, 1)
-        ttk.Label(form, text="Skin name:").grid(row=2, column=0, sticky="w", pady=5)
-        ttk.Entry(form, textvariable=self.skin_name).grid(row=2, column=1, sticky="ew", padx=6)
+        self.root.minsize(760, 600)
+        header = ttk.Frame(self.root)
+        header.pack(fill="x", padx=32, pady=(28, 12))
+        ttk.Label(header, text="DressCoder", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(
+            header, text="Build polished Dresscode mods from your custom skins.",
+            style="Subtitle.TLabel",
+        ).pack(anchor="w", pady=(3, 0))
+
+        form = ttk.Frame(self.root, style="Card.TFrame", padding=24)
+        form.pack(fill="x", padx=32, pady=(8, 12))
+        ttk.Label(form, text="Project setup", style="Section.TLabel").grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 16)
+        )
+        self.add_folder_row(form, "Source skin folder", self.source, self.choose_source, 1)
+        self.add_folder_row(form, "Destination root", self.destination, self.choose_destination, 2)
+        ttk.Label(form, text="Skin name", style="Card.TLabel").grid(
+            row=3, column=0, sticky="w", pady=7
+        )
+        ttk.Entry(form, textvariable=self.skin_name).grid(
+            row=3, column=1, columnspan=2, sticky="ew", padx=(16, 0)
+        )
         form.columnconfigure(1, weight=1)
-        tools = ttk.Frame(form)
-        tools.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        ttk.Label(tools, textvariable=self.tool_status).pack(side="left")
-        self.install_button = ttk.Button(tools, text="Install patcher", command=self.install_patcher)
+        tools = ttk.Frame(form, style="Card.TFrame")
+        tools.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(20, 0))
+        ttk.Label(tools, textvariable=self.tool_status, style="CardMuted.TLabel").pack(side="left")
+        self.install_button = ttk.Button(
+            tools, text="Install patcher", style="Secondary.TButton",
+            command=self.install_patcher,
+        )
         self.install_button.pack(side="right", padx=(6, 0))
         self.dependencies_button = ttk.Button(
-            tools, text="Install dependencies", command=self.install_dependencies
+            tools, text="Install dependencies", style="Secondary.TButton",
+            command=self.install_dependencies,
         )
         self.dependencies_button.pack(side="right")
-        self.start_button = ttk.Button(form, text="Start process", command=self.start)
-        self.start_button.grid(row=4, column=0, columnspan=3, pady=(10, 4))
+        self.start_button = ttk.Button(
+            form, text="Start conversion", style="Accent.TButton", command=self.start,
+        )
+        self.start_button.grid(row=5, column=0, columnspan=3, sticky="e", pady=(24, 0))
         ttk.Label(
-            self.root, text="Patch/copy the skin, optionally add variants, then build Dresscode.",
-            padding=(12, 0),
-        ).pack(anchor="w")
-        status = ttk.Frame(self.root, padding=12)
-        status.pack(fill="x")
-        ttk.Label(status, textvariable=self.step_text).pack(anchor="w")
+            self.root, text="The workflow patches the skin, creates variants, writes metadata, and converts it.",
+            style="Muted.TLabel",
+        ).pack(anchor="w", padx=32, pady=(0, 10))
+        status = ttk.Frame(self.root, style="Card.TFrame", padding=24)
+        status.pack(fill="x", padx=32, pady=(0, 24))
+        ttk.Label(status, text="Workflow progress", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(status, textvariable=self.step_text, style="CardMuted.TLabel").pack(
+            anchor="w", pady=(8, 4)
+        )
         ttk.Progressbar(
-            status, variable=self.progress, maximum=len(self.WORKFLOW_STEPS), mode="determinate"
-        ).pack(fill="x", pady=6)
-        ttk.Button(status, text="Detailed view", command=self.show_detailed_view).pack(anchor="e")
+            status, variable=self.progress, maximum=len(self.WORKFLOW_STEPS),
+            mode="determinate", style="Modern.Horizontal.TProgressbar",
+        ).pack(fill="x", pady=(4, 14))
+        ttk.Button(
+            status, text="View detailed logs", style="Secondary.TButton",
+            command=self.show_detailed_view,
+        ).pack(anchor="e")
 
     @staticmethod
     def add_folder_row(parent: ttk.Frame, label: str, variable: tk.StringVar,
                        command: Callable[[], None], row: int) -> None:
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=5)
-        ttk.Entry(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=6)
-        ttk.Button(parent, text="Browse…", command=command).grid(row=row, column=2)
+        ttk.Label(parent, text=label, style="Card.TLabel").grid(
+            row=row, column=0, sticky="w", pady=7
+        )
+        ttk.Entry(parent, textvariable=variable).grid(
+            row=row, column=1, sticky="ew", padx=(16, 8)
+        )
+        ttk.Button(parent, text="Browse", style="Secondary.TButton",
+                   command=command).grid(row=row, column=2)
 
     def choose_source(self) -> None:
         path = filedialog.askdirectory(title="Select source skin folder")
@@ -190,12 +306,18 @@ class Frontend:
             return
         window = tk.Toplevel(self.root)
         self.detail_window = window
-        window.title("Detailed logs")
-        window.geometry("800x500")
+        window.title("Detailed logs | DressCoder")
+        window.geometry("860x540")
+        window.configure(bg=self.COLORS["background"])
         window.transient(self.root)
-        frame = ttk.Frame(window, padding=12)
+        frame = ttk.Frame(window, style="Card.TFrame", padding=16)
         frame.pack(fill="both", expand=True)
-        log = tk.Text(frame, wrap="word", state="disabled")
+        log = tk.Text(
+            frame, wrap="word", state="disabled",
+            bg=self.COLORS["input"], fg=self.COLORS["text"],
+            insertbackground=self.COLORS["text"], selectbackground=self.COLORS["accent"],
+            relief="flat", bd=0, padx=12, pady=12,
+        )
         scroll = ttk.Scrollbar(frame, orient="vertical", command=log.yview)
         log.configure(yscrollcommand=scroll.set)
         log.pack(side="left", fill="both", expand=True)
@@ -206,8 +328,10 @@ class Frontend:
             log.insert("end", "\n".join(self.log_lines) + "\n")
             log.see("end")
             log.configure(state="disabled")
-        close_button = ttk.Button(window, text="Close")
-        close_button.pack(pady=(0, 12))
+        close_button = ttk.Button(
+            window, text="Close", style="Secondary.TButton",
+        )
+        close_button.pack(anchor="e", padx=16, pady=(0, 16))
 
         def close() -> None:
             self.detail_window = None
