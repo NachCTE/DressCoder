@@ -16,7 +16,9 @@ from frontend_services import (
     PATCHER_RELEASE,
     Part,
     PatcherService,
+    BatchPatchService,
     WorkflowService,
+    is_dresscode_folder,
     patcher_ready,
 )
 from frontend_translations import UI_TEXT
@@ -156,6 +158,12 @@ class Frontend:
         self.author = tk.StringVar()
         self.description = tk.StringVar()
         self.photo = tk.StringVar()
+        self.skip_patch = tk.BooleanVar(value=False)
+        self.batch_destination = tk.StringVar()
+        self.batch_mode = tk.StringVar(value="forward")
+        self.batch_sources = []
+        self.batch_step_text = tk.StringVar()
+        self.batch_progress = tk.DoubleVar(value=0)
         self.tool_status = tk.StringVar()
         self.step_text = tk.StringVar()
         self.progress = tk.DoubleVar(value=0)
@@ -164,6 +172,7 @@ class Frontend:
         self.detail_window = None
         self.detail_log = None
         self.status_dot = None
+        self.scroll_update_after = None
         self.load_cache()
         self.configure_theme()
         self.step_text.set(self.t("ready"))
@@ -189,14 +198,27 @@ class Frontend:
             "author": self.author,
             "description": self.description,
             "photo": self.photo,
+            "skip_patch": self.skip_patch,
+            "batch_destination": self.batch_destination,
         }
         for key, variable in values.items():
             value = data.get(key)
             if isinstance(value, str):
                 variable.set(value)
+            elif isinstance(value, bool) and isinstance(variable, tk.BooleanVar):
+                variable.set(value)
         language = data.get("language")
         if language in ("es", "en"):
             self.language.set(language)
+        mode = data.get("batch_mode")
+        if mode in ("forward", "reverse"):
+            self.batch_mode.set(mode)
+        sources = data.get("batch_sources")
+        if isinstance(sources, list):
+            self.batch_sources = [
+                Path(item) for item in sources
+                if isinstance(item, str) and item
+            ]
 
     def save_cache(self) -> None:
         data = {
@@ -207,6 +229,10 @@ class Frontend:
             "author": self.author.get(),
             "description": self.description.get(),
             "photo": self.photo.get(),
+            "skip_patch": self.skip_patch.get(),
+            "batch_destination": self.batch_destination.get(),
+            "batch_mode": self.batch_mode.get(),
+            "batch_sources": [str(path) for path in self.batch_sources],
         }
         self.CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.CACHE_PATH.with_suffix(".tmp")
@@ -286,6 +312,56 @@ class Frontend:
         style.configure("Section.TLabel", font=self.fonts["section"],
                         foreground=colors["text"], background=colors["card"])
         style.configure("Divider.TSeparator", background=colors["divider"])
+        style.configure(
+            "TNotebook",
+            background=colors["background"],
+            borderwidth=0,
+            tabmargins=(0, 0, 0, 0),
+            bordercolor=colors["background"],
+            lightcolor=colors["background"],
+            darkcolor=colors["background"],
+            relief="flat",
+        )
+        style.map(
+            "TNotebook",
+            background=[("focus", colors["background"])],
+            bordercolor=[("focus", colors["background"])],
+            lightcolor=[("focus", colors["background"])],
+            darkcolor=[("focus", colors["background"])],
+        )
+        style.configure(
+            "TNotebook.Tab",
+            background=colors["card_alt"],
+            foreground=colors["muted"],
+            padding=(18, 9),
+            borderwidth=0,
+            bordercolor=colors["card_alt"],
+            lightcolor=colors["card_alt"],
+            darkcolor=colors["card_alt"],
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[
+                ("selected", colors["card"]),
+                ("active", colors["border"]),
+            ],
+            foreground=[
+                ("selected", colors["text"]),
+                ("active", colors["text"]),
+            ],
+            bordercolor=[
+                ("selected", colors["card"]),
+                ("active", colors["border"]),
+            ],
+            lightcolor=[
+                ("selected", colors["card"]),
+                ("active", colors["border"]),
+            ],
+            darkcolor=[
+                ("selected", colors["card"]),
+                ("active", colors["border"]),
+            ],
+        )
         style.configure("TEntry", fieldbackground=colors["input"],
                         foreground=colors["text"], insertcolor=colors["text"],
                         bordercolor=colors["border"], lightcolor=colors["border"],
@@ -321,6 +397,24 @@ class Frontend:
                         indicatorcolor=colors["input"])
         style.map("TCheckbutton", background=[("active", colors["card"])],
                   indicatorbackground=[("selected", colors["accent"])])
+        style.configure(
+            "Patch.TRadiobutton", background=colors["card"],
+            foreground=colors["text"], indicatorbackground=colors["input"],
+            indicatorcolor=colors["input"], padding=(4, 3),
+        )
+        style.map(
+            "Patch.TRadiobutton", background=[("active", colors["card"])],
+            indicatorbackground=[("selected", colors["accent"])],
+        )
+        style.configure(
+            "Patch.TCheckbutton", background=colors["card"],
+            foreground=colors["text"], indicatorbackground=colors["input"],
+            indicatorcolor=colors["input"], padding=(4, 3),
+        )
+        style.map(
+            "Patch.TCheckbutton", background=[("active", colors["card"])],
+            indicatorbackground=[("selected", colors["accent"])],
+        )
         style.configure(
             "Variant.TCheckbutton",
             background=colors["background"],
@@ -372,8 +466,20 @@ class Frontend:
         # content scrolls instead of being clipped.
         outer = ttk.Frame(self.root)
         outer.pack(fill="both", expand=True, side="top")
-        canvas = tk.Canvas(outer, bg=colors["background"], highlightthickness=0, bd=0)
-        vscroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        notebook = ttk.Notebook(outer)
+        main_tab = ttk.Frame(notebook)
+        patch_tab = ttk.Frame(notebook)
+        notebook.add(main_tab, text=self.t("tab_convert"))
+        notebook.add(patch_tab, text=self.t("tab_patch"))
+        notebook.pack(fill="both", expand=True)
+        tk.Frame(
+            main_tab, height=1, bg="#171717", bd=0, highlightthickness=0
+        ).pack(fill="x", side="top")
+        tk.Frame(
+            patch_tab, height=1, bg="#171717", bd=0, highlightthickness=0
+        ).pack(fill="x", side="top")
+        canvas = tk.Canvas(main_tab, bg=colors["background"], highlightthickness=0, bd=0)
+        vscroll = ttk.Scrollbar(main_tab, orient="vertical", command=canvas.yview)
         content = ttk.Frame(canvas)
         content_window = canvas.create_window((0, 0), window=content, anchor="nw")
 
@@ -404,7 +510,7 @@ class Frontend:
         content.bind("<Configure>", _update_scrollbar, add="+")
         canvas.bind("<Configure>", _update_scrollbar, add="+")
         canvas.pack(side="left", fill="both", expand=True)
-        self.root.after_idle(_update_scrollbar)
+        self.scroll_update_after = self.root.after_idle(_update_scrollbar)
 
         header = ttk.Frame(content)
         header.pack(fill="x", padx=36, pady=(32, 16))
@@ -432,34 +538,34 @@ class Frontend:
             row=4, column=0, columnspan=3, sticky="ew", pady=10
         )
         ttk.Label(form, text=self.t("skin_name"), style="Card.TLabel").grid(
-            row=5, column=0, sticky="w", pady=7
+            row=6, column=0, sticky="w", pady=7
         )
         ttk.Entry(form, textvariable=self.skin_name).grid(
-            row=5, column=1, columnspan=2, sticky="ew", padx=(16, 0)
+            row=6, column=1, columnspan=2, sticky="ew", padx=(16, 0)
         )
         ttk.Separator(form, style="Divider.TSeparator").grid(
-            row=6, column=0, columnspan=3, sticky="ew", pady=10
+            row=7, column=0, columnspan=3, sticky="ew", pady=10
         )
         ttk.Label(form, text=self.t("author"), style="Card.TLabel").grid(
-            row=7, column=0, sticky="w", pady=(11, 6)
+            row=8, column=0, sticky="w", pady=(11, 6)
         )
         ttk.Entry(form, textvariable=self.author).grid(
-            row=7, column=1, columnspan=2, sticky="ew", padx=(16, 0), pady=(11, 6)
+            row=8, column=1, columnspan=2, sticky="ew", padx=(16, 0), pady=(11, 6)
         )
         ttk.Label(form, text=self.t("description"), style="Card.TLabel").grid(
-            row=8, column=0, sticky="w", pady=(6, 6)
+            row=9, column=0, sticky="w", pady=(6, 6)
         )
         ttk.Entry(form, textvariable=self.description).grid(
-            row=8, column=1, columnspan=2, sticky="ew", padx=(16, 0), pady=(6, 6)
+            row=9, column=1, columnspan=2, sticky="ew", padx=(16, 0), pady=(6, 6)
         )
         ttk.Label(form, text=self.t("photo"), style="Card.TLabel").grid(
-            row=9, column=0, sticky="w", pady=(6, 11)
+            row=10, column=0, sticky="w", pady=(6, 11)
         )
         ttk.Entry(form, textvariable=self.photo, state="readonly").grid(
-            row=9, column=1, sticky="ew", padx=(16, 8), pady=(6, 11)
+            row=10, column=1, sticky="ew", padx=(16, 8), pady=(6, 11)
         )
         photo_actions = ttk.Frame(form, style="Card.TFrame")
-        photo_actions.grid(row=9, column=2, sticky="e", pady=(6, 11))
+        photo_actions.grid(row=10, column=2, sticky="e", pady=(6, 11))
         ttk.Button(
             photo_actions, text=self.t("photo_browse"), style="Secondary.TButton",
             command=self.choose_photo,
@@ -494,10 +600,17 @@ class Frontend:
         )
         self.dependencies_button.pack(side="right")
 
+        conversion_actions = ttk.Frame(content)
+        conversion_actions.pack(fill="x", padx=36, pady=(0, 6))
+        ttk.Checkbutton(
+            conversion_actions, text=self.t("skip_patch"), variable=self.skip_patch,
+            style="Patch.TCheckbutton",
+        ).pack(side="left")
         self.start_button = ttk.Button(
-            content, text=self.t("start_conversion"), style="Accent.TButton", command=self.start,
+            conversion_actions, text=self.t("start_conversion"),
+            style="Accent.TButton", command=self.start,
         )
-        self.start_button.pack(anchor="e", padx=36, pady=(0, 6))
+        self.start_button.pack(side="right")
         ttk.Label(
             content, text=self.t("workflow_description"), style="Muted.TLabel",
         ).pack(anchor="w", padx=36, pady=(4, 12))
@@ -517,6 +630,216 @@ class Frontend:
             status, text=self.t("view_logs"), style="Secondary.TButton",
             command=self.show_detailed_view,
         ).pack(anchor="e", pady=(0, 8))
+        self.build_batch_tab(patch_tab)
+
+    def build_batch_tab(self, parent: ttk.Frame) -> None:
+        wrapper = ttk.Frame(parent)
+        wrapper.pack(fill="both", expand=True, padx=36, pady=28)
+        header = ttk.Frame(wrapper)
+        header.pack(fill="x", pady=(0, 16))
+        ttk.Label(header, text=self.t("patch_tab_title"),
+                  style="Title.TLabel").pack(anchor="w")
+        ttk.Label(header, text=self.t("patch_tab_description"),
+                  style="Subtitle.TLabel", wraplength=760).pack(anchor="w", pady=(4, 0))
+
+        mode_card = ttk.Frame(wrapper, style="Card.TFrame", padding=(24, 18))
+        mode_card.pack(fill="x", pady=(0, 16))
+        ttk.Label(mode_card, text=self.t("patch_direction"),
+                  style="Section.TLabel").pack(anchor="w")
+        modes = ttk.Frame(mode_card, style="Card.TFrame")
+        modes.pack(anchor="w", pady=(12, 0))
+        ttk.Radiobutton(
+            modes, text=self.t("patch_to_1005"), variable=self.batch_mode,
+            value="forward", style="Patch.TRadiobutton",
+        ).pack(side="left", padx=(0, 24))
+        ttk.Radiobutton(
+            modes, text=self.t("unpatch_to_1004"), variable=self.batch_mode,
+            value="reverse", style="Patch.TRadiobutton",
+        ).pack(side="left")
+
+        sources_card = ttk.Frame(wrapper, style="Card.TFrame", padding=(24, 18))
+        sources_card.pack(fill="both", expand=True, pady=(0, 16))
+        ttk.Label(sources_card, text=self.t("patch_sources"),
+                  style="Section.TLabel").pack(anchor="w")
+        ttk.Label(sources_card, text=self.t("patch_sources_hint"),
+                  style="CardMuted.TLabel", wraplength=760).pack(anchor="w", pady=(6, 10))
+        source_row = ttk.Frame(sources_card, style="Card.TFrame")
+        source_row.pack(fill="x", pady=(0, 10))
+        ttk.Button(
+            source_row, text=self.t("add_folder"), style="Secondary.TButton",
+            command=self.add_batch_source,
+        ).pack(side="left")
+        ttk.Button(
+            source_row, text=self.t("remove_folder"), style="Secondary.TButton",
+            command=self.remove_batch_source,
+        ).pack(side="left", padx=(8, 0))
+        self.clear_batch_button = ttk.Button(
+            source_row, text=self.t("clear_folders"), style="Secondary.TButton",
+            command=self.clear_batch_sources,
+        )
+        self.clear_batch_button.pack(side="left", padx=(8, 0))
+        self.batch_source_list = tk.Listbox(
+            sources_card, height=7, selectmode="extended",
+            bg="#171717", fg=self.COLORS["text"],
+            selectbackground=self.COLORS["accent"], selectforeground="#0a0a0a",
+            relief="flat", bd=0, highlightthickness=1,
+            highlightbackground="#171717", highlightcolor=self.COLORS["accent"],
+        )
+        self.batch_source_list.pack(fill="both", expand=True)
+        for source in self.batch_sources:
+            self.batch_source_list.insert("end", str(source))
+
+        destination_card = ttk.Frame(wrapper, style="Card.TFrame", padding=(24, 18))
+        destination_card.pack(fill="x", pady=(0, 16))
+        ttk.Label(destination_card, text=self.t("patch_destination"),
+                  style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Entry(destination_card, textvariable=self.batch_destination).grid(
+            row=1, column=0, sticky="ew", padx=(0, 8), pady=(10, 0)
+        )
+        ttk.Button(
+            destination_card, text=self.t("browse"), style="Secondary.TButton",
+            command=self.choose_batch_destination,
+        ).grid(row=1, column=1, pady=(10, 0))
+        destination_card.columnconfigure(0, weight=1)
+
+        action_row = ttk.Frame(wrapper)
+        action_row.pack(fill="x")
+        self.batch_start_button = ttk.Button(
+            action_row, text=self.t("start_patch"), style="Accent.TButton",
+            command=self.start_batch_patch,
+        )
+        self.batch_start_button.pack(side="right")
+        ttk.Button(
+            action_row, text=self.t("view_logs"), style="Secondary.TButton",
+            command=self.show_detailed_view,
+        ).pack(side="right", padx=(0, 8))
+        ttk.Label(action_row, textvariable=self.batch_step_text,
+                  style="Muted.TLabel").pack(side="left")
+        self.batch_progress_bar = ttk.Progressbar(
+            wrapper, variable=self.batch_progress, maximum=1,
+            mode="determinate", style="Modern.Horizontal.TProgressbar",
+        )
+        self.batch_progress_bar.pack(fill="x", pady=(12, 0))
+
+    def add_batch_source(self) -> None:
+        path = filedialog.askdirectory(title=self.t("select_patch_source"))
+        if not path:
+            return
+        selected = Path(path)
+        if selected in self.batch_sources:
+            return
+        self.batch_sources.append(selected)
+        self.batch_source_list.insert("end", str(selected))
+
+    def remove_batch_source(self) -> None:
+        selected = list(self.batch_source_list.curselection())
+        for index in reversed(selected):
+            self.batch_source_list.delete(index)
+            del self.batch_sources[index]
+
+    def clear_batch_sources(self) -> None:
+        self.batch_source_list.delete(0, "end")
+        self.batch_sources.clear()
+
+    def choose_batch_destination(self) -> None:
+        path = filedialog.askdirectory(title=self.t("select_patch_destination"))
+        if path:
+            self.batch_destination.set(path)
+
+    def batch_ui_step(self, number: int) -> None:
+        self.batch_progress.set(number)
+        self.batch_step_text.set(
+            self.t("patch_step", number=number, total=len(self.batch_sources))
+        )
+
+    def show_batch_summary(self, results) -> None:
+        patched = [item for item in results if item["status"] == "patched"]
+        skipped = [item for item in results if item["status"] == "skipped"]
+        failed = [item for item in results if item["status"] == "failed"]
+        sections = [
+            self.t("summary_patched", count=len(patched)),
+            *[f"  - {item['name']}: {item['reason']}" for item in patched],
+            "",
+            self.t("summary_skipped", count=len(skipped)),
+            *[f"  - {item['name']}: {item['reason']}" for item in skipped],
+            "",
+            self.t("summary_failed", count=len(failed)),
+            *[f"  - {item['name']}: {item['reason']}" for item in failed],
+        ]
+        messagebox.showinfo(self.t("patch_summary_title"), "\n".join(sections), parent=self.root)
+
+    def start_batch_patch(self) -> None:
+        if not patcher_ready():
+            messagebox.showerror(
+                self.t("patcher_missing"), self.t("install_before_start"),
+                parent=self.root,
+            )
+            return
+        sources = list(self.batch_sources)
+        destination = Path(self.batch_destination.get().strip())
+        if not sources or not destination.is_dir():
+            messagebox.showerror(
+                self.t("input_required"), self.t("choose_patch_inputs"),
+                parent=self.root,
+            )
+            return
+        if len({source.name.casefold() for source in sources}) != len(sources):
+            messagebox.showerror(
+                self.t("invalid_folders"), self.t("duplicate_patch_names"),
+                parent=self.root,
+            )
+            return
+        for source in sources:
+            if not source.is_dir():
+                messagebox.showerror(
+                    self.t("invalid_folders"), self.t("patch_source_missing", source=source),
+                    parent=self.root,
+                )
+                return
+        reverse = self.batch_mode.get() == "reverse"
+        existing = [
+            destination / source.name for source in sources
+            if (destination / source.name).exists()
+        ]
+        if existing and not messagebox.askyesno(
+            self.t("destination_exists"),
+            self.t("replace_patch_destinations", count=len(existing)),
+            parent=self.root,
+        ):
+            return
+        self.batch_progress.set(0)
+        self.batch_progress_bar.configure(maximum=len(sources))
+        self.batch_step_text.set(self.t("patch_starting"))
+        self.set_batch_busy(True)
+
+        def worker() -> None:
+            try:
+                results = BatchPatchService(
+                    self.ui_log, lambda number: self.root.after(
+                        0, self.batch_ui_step, number
+                    ),
+                ).run(sources, destination, reverse)
+                self.ui_call(lambda: self.show_batch_summary(results))
+                patched_any = any(item["status"] == "patched" for item in results)
+                if patched_any and self.ui_call(lambda: messagebox.askyesno(
+                    self.t("open_folder_title"),
+                    self.t("open_destination_question"),
+                    parent=self.root,
+                )):
+                    os.startfile(str(destination))
+            except Exception as exc:
+                self.ui_call(lambda: messagebox.showerror(
+                    self.t("process_failed"), str(exc), parent=self.root
+                ))
+            finally:
+                self.root.after(0, lambda: self.set_batch_busy(False))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def set_batch_busy(self, busy: bool) -> None:
+        state = "disabled" if busy else "normal"
+        self.batch_start_button.configure(state=state)
+        self.clear_batch_button.configure(state=state)
 
     def add_folder_row(self, parent: ttk.Frame, label: str, variable: tk.StringVar,
                        command: Callable[[], None], row: int) -> None:
@@ -592,6 +915,8 @@ class Frontend:
             self.install_button.configure(state="disabled" if installed else "normal")
             self.dependencies_button.configure(state="normal" if installed else "disabled")
             self.start_button.configure(state="normal" if installed else "disabled")
+        if hasattr(self, "batch_start_button"):
+            self.batch_start_button.configure(state="normal" if installed else "disabled")
 
     def append_log(self, text: str) -> None:
         line = text.rstrip()
@@ -664,6 +989,12 @@ class Frontend:
             self.detail_window.destroy()
             self.detail_window = None
             self.detail_log = None
+        if self.scroll_update_after is not None:
+            try:
+                self.root.after_cancel(self.scroll_update_after)
+            except tk.TclError:
+                pass
+            self.scroll_update_after = None
         for child in self.root.winfo_children():
             child.destroy()
         self.build_ui()
@@ -720,6 +1051,12 @@ class Frontend:
         if not source.is_dir() or not destination.is_dir() or not name:
             messagebox.showerror(self.t("input_required"), self.t("choose_folders"))
             return
+        if is_dresscode_folder(source):
+            messagebox.showerror(
+                self.t("dresscode_source"), self.t("dresscode_source_message"),
+                parent=self.root,
+            )
+            return
         if photo is not None and not photo.is_file():
             messagebox.showerror(self.t("input_required"), self.t("select_photo"))
             return
@@ -775,7 +1112,7 @@ class Frontend:
             try:
                 service.run(
                     source, destination, name, target,
-                    author, description, photo,
+                    author, description, photo, self.skip_patch.get(),
                 )
                 self.root.after(0, self.progress.set, len(self.workflow_steps))
                 self.ui_call(lambda: messagebox.showinfo(

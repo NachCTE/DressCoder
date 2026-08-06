@@ -14,13 +14,42 @@ UI_TEXT = {
         "omit": "omit",
         "none": "none",
         "subtitle": "Build polished Dresscode mods from your custom skins.",
+        "tab_convert": "Dresscode conversion",
+        "tab_patch": "Batch patcher",
+        "patch_tab_title": "Patch skins",
+        "patch_tab_description": "Update skins from V1.004 to V1.005, or reverse them for V1.004. Process multiple folders into one destination root.",
+        "patch_direction": "Patch direction",
+        "patch_to_1005": "V1.004 to V1.005",
+        "unpatch_to_1004": "V1.005 to V1.004",
+        "patch_sources": "Source skin folders",
+        "patch_sources_hint": "Add one or more skin folders. Each result is created in the destination using the original folder name.",
+        "add_folder": "Add folder",
+        "remove_folder": "Remove selected",
+        "clear_folders": "Clear all",
+        "patch_destination": "Destination root",
+        "start_patch": "Start patching",
+        "select_patch_source": "Select a skin folder",
+        "select_patch_destination": "Select patch destination root",
+        "patch_step": "Processing folder {number} of {total}",
+        "patch_starting": "Ready to patch",
+        "choose_patch_inputs": "Add at least one source folder and choose an existing destination root.",
+        "duplicate_patch_names": "Source folders must have different names.",
+        "patch_source_missing": "Source folder does not exist: {source}",
+        "patch_completed": "Skin patching completed successfully.",
+        "open_destination_question": "Would you like to open the destination folder?",
+        "replace_patch_destinations": "The destination already contains {count} skin folder(s). Replace them?",
+        "patch_summary_title": "Patching summary",
+        "summary_patched": "Patched ({count}):",
+        "summary_skipped": "Not patched ({count}):",
+        "summary_failed": "Failed ({count}):",
         "help": "Help",
         "help_title": "How to use DressCoder",
         "help_message": (
             "1. Select the source skin folder and a destination root.\n"
             "2. Enter the skin metadata. Author, description, and photo are optional.\n"
             "3. Click Start conversion and choose whether to create variants.\n"
-            "4. When it finishes, open:\n"
+            "4. To only patch skins, use the Batch patcher tab and choose one or more folders.\n"
+            "5. When it finishes, open:\n"
             "   destination\\skin_name\\dresscode\n\n"
             "Copy the contents of that dresscode folder, including the generated "
             ".pak, .ucas, and .utoc files, into the game's Mods folder.\n"
@@ -30,6 +59,7 @@ UI_TEXT = {
         "source": "Source skin folder",
         "destination": "Destination root",
         "skin_name": "Skin name",
+        "skip_patch": "Skip V1.005 patching (copy the skin unchanged)",
         "author": "Author",
         "description": "Description",
         "photo": "Photo",
@@ -56,6 +86,8 @@ UI_TEXT = {
         "patcher_missing": "Patcher missing",
         "install_before_start": "Install the FFVII Rebirth Mesh Patcher before starting.",
         "input_required": "Input required",
+        "dresscode_source": "Dresscode skin",
+        "dresscode_source_message": "This folder already contains a Dresscode plugin (.uplugin). Choose the original loose skin instead.",
         "choose_folders": "Choose existing source and destination folders.",
         "invalid_name": "Invalid skin name",
         "single_folder_name": "Use a single folder name for the skin.",
@@ -99,13 +131,42 @@ UI_TEXT = {
         "omit": "omite",
         "none": "ninguna",
         "subtitle": "Crea mods Dresscode a partir de tus skins personalizadas.",
+        "tab_convert": "Conversión Dresscode",
+        "tab_patch": "Parchar skins",
+        "patch_tab_title": "Parchar skins",
+        "patch_tab_description": "Actualiza skins de V1.004 a V1.005 o revierte el proceso para V1.004. Puedes procesar varias carpetas en una misma raíz de destino.",
+        "patch_direction": "Dirección del parche",
+        "patch_to_1005": "V1.004 a V1.005",
+        "unpatch_to_1004": "V1.005 a V1.004",
+        "patch_sources": "Carpetas de skins de origen",
+        "patch_sources_hint": "Agrega una o más carpetas. Cada resultado se crea en el destino usando el nombre original de la carpeta.",
+        "add_folder": "Agregar carpeta",
+        "remove_folder": "Quitar seleccionadas",
+        "clear_folders": "Limpiar todas",
+        "patch_destination": "Raíz de destino",
+        "start_patch": "Iniciar parcheo",
+        "select_patch_source": "Selecciona una carpeta de skin",
+        "select_patch_destination": "Selecciona la raíz de destino",
+        "patch_step": "Procesando carpeta {number} de {total}",
+        "patch_starting": "Listo para comenzar",
+        "choose_patch_inputs": "Agrega al menos una carpeta de origen y selecciona una raíz de destino existente.",
+        "duplicate_patch_names": "Las carpetas de origen deben tener nombres diferentes.",
+        "patch_source_missing": "La carpeta de origen no existe: {source}",
+        "patch_completed": "El parcheo de skins finalizó correctamente.",
+        "open_destination_question": "¿Quieres abrir la carpeta de destino?",
+        "replace_patch_destinations": "La carpeta de destino ya contiene {count} carpeta(s) de skin. ¿Quieres reemplazarlas?",
+        "patch_summary_title": "Resumen del parcheo",
+        "summary_patched": "Parcheados ({count}):",
+        "summary_skipped": "No parcheados ({count}):",
+        "summary_failed": "Fallidos ({count}):",
         "help": "Ayuda",
         "help_title": "Cómo usar DressCoder",
         "help_message": (
             "1. Selecciona la carpeta de origen de la skin y una raíz de destino.\n"
             "2. Completa los metadatos. Autor, descripción y foto son opcionales.\n"
             "3. Pulsa Iniciar conversión y decide si quieres crear variantes.\n"
-            "4. Al finalizar, abre:\n"
+            "4. Para solo parchear skins, usa la pestaña Parchar skins y agrega una o más carpetas.\n"
+            "5. Al finalizar, abre:\n"
             "   destino\\nombre_skin\\dresscode\n\n"
             "Copia el contenido de esa carpeta dresscode, incluidos los archivos "
             ".pak, .ucas y .utoc generados, dentro de la carpeta Mods del juego.\n"
@@ -115,6 +176,7 @@ UI_TEXT = {
         "source": "Carpeta de la skin de origen",
         "destination": "Raíz de destino",
         "skin_name": "Nombre de la skin",
+        "skip_patch": "Saltar parcheo V1.005 (copiar la skin sin cambios)",
         "author": "Autor",
         "description": "Descripción",
         "photo": "Foto",
@@ -141,6 +203,8 @@ UI_TEXT = {
         "patcher_missing": "Falta el patcher",
         "install_before_start": "Instala FFVII Rebirth Mesh Patcher antes de comenzar.",
         "input_required": "Faltan datos",
+        "dresscode_source": "Skin Dresscode",
+        "dresscode_source_message": "Esta carpeta ya contiene un plugin Dresscode (.uplugin). Selecciona la skin original sin convertir.",
         "choose_folders": "Selecciona carpetas existentes de origen y destino.",
         "invalid_name": "Nombre de skin inválido",
         "single_folder_name": "Usa un único nombre de carpeta para la skin.",

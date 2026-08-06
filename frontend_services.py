@@ -15,7 +15,7 @@ import uuid
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 
 ROOT = Path(__file__).resolve().parent
@@ -23,6 +23,7 @@ PATCHER = ROOT / "tools" / "patcher"
 PATCH = PATCHER / "patch.py"
 PARTS = PATCHER / "devtools" / "parts.py"
 CONVERT = PATCHER / "convert.py"
+UNPATCH = PATCHER / "unpatch.py"
 PATCHER_RELEASE = "v1.5.0"
 PATCHER_DOWNLOAD_URL = (
     "https://github.com/nikolaybutnik/FFVII-Rebirth-Mesh-Patcher/releases/"
@@ -75,7 +76,11 @@ def safe_extract(zip_path: Path, destination: Path) -> None:
 
 
 def patcher_ready() -> bool:
-    return PATCH.exists() and PARTS.exists() and CONVERT.exists()
+    return PATCH.exists() and PARTS.exists() and CONVERT.exists() and UNPATCH.exists()
+
+
+def is_dresscode_folder(source: Path) -> bool:
+    return any(source.rglob("*.uplugin"))
 
 
 class PatcherService:
@@ -152,6 +157,93 @@ class PatcherService:
         return completed.returncode
 
 
+class BatchPatchService:
+    """Patches or unpatches independent skin folders into a destination root."""
+
+    def __init__(self, log: LogCallback, step: StepCallback):
+        self.log = log
+        self.step = step
+
+    @staticmethod
+    def _reason(output: str, fallback: str) -> str:
+        for line in output.splitlines():
+            text = line.strip()
+            lowered = text.lower()
+            if any(word in lowered for word in (
+                "nothing", "already", "unaffected", "not touched", "no character",
+            )):
+                return text
+        return fallback
+
+    def run(
+        self, sources: List[Path], destination: Path, reverse: bool
+    ) -> List[Dict[str, str]]:
+        tool = UNPATCH if reverse else PATCH
+        needs_label = "needs unpatching" if reverse else "needs patching"
+        results = []
+        for index, source in enumerate(sources, start=1):
+            source = source.resolve()
+            batch_output_name = source.name
+            target = destination.resolve() / batch_output_name
+            self.log(f"Batch source: {source}")
+            self.log(f"Batch output: {target}")
+            if target.exists():
+                shutil.rmtree(target)
+            self.step(index)
+            try:
+                shutil.copytree(source, target)
+                inspect_command = [
+                    sys.executable, str(tool), "--path", str(target), "--list",
+                ]
+                self.log("$ " + subprocess.list2cmdline(inspect_command))
+                inspected = subprocess.run(
+                    inspect_command, cwd=PATCHER, text=True, encoding="utf-8",
+                    errors="replace", capture_output=True, check=False,
+                )
+                inspection = (inspected.stdout + inspected.stderr).strip()
+                if inspection:
+                    self.log(inspection)
+                if inspected.returncode != 0:
+                    results.append({
+                        "name": batch_output_name, "status": "failed",
+                        "reason": f"inspection exited with code {inspected.returncode}",
+                    })
+                    continue
+                if needs_label not in inspection.lower():
+                    results.append({
+                        "name": batch_output_name, "status": "skipped",
+                        "reason": self._reason(inspection, "already in the target format"),
+                    })
+                    continue
+                command = [
+                    sys.executable, str(tool), "--path", str(target),
+                    "--all", "--no-backup",
+                ]
+                self.log("$ " + subprocess.list2cmdline(command))
+                completed = subprocess.run(
+                    command, cwd=PATCHER, text=True, encoding="utf-8",
+                    errors="replace", capture_output=True, check=False,
+                )
+                output = (completed.stdout + completed.stderr).strip()
+                if output:
+                    self.log(output)
+                if completed.returncode != 0:
+                    results.append({
+                        "name": batch_output_name, "status": "failed",
+                        "reason": f"patcher exited with code {completed.returncode}",
+                    })
+                else:
+                    results.append({
+                        "name": batch_output_name, "status": "patched",
+                        "reason": "patched successfully",
+                    })
+            except OSError as exc:
+                results.append({
+                    "name": batch_output_name, "status": "failed", "reason": str(exc),
+                })
+        return results
+
+
 class WorkflowService:
     """Runs the patch, variant, metadata, and converter workflow."""
 
@@ -172,32 +264,48 @@ class WorkflowService:
     def run(
         self, source: Path, destination: Path, name: str, target: Path,
         author: str = "", description: str = "", photo: Optional[Path] = None,
+        skip_patch: bool = False,
     ) -> None:
         try:
+            if is_dresscode_folder(source):
+                raise RuntimeError(
+                    "the selected source already appears to be a Dresscode mod"
+                )
             if target.exists():
                 shutil.rmtree(target)
             work = destination / (".dresscoder-work-" + uuid.uuid4().hex)
             try:
                 self.step(1)
-                listing_args = [
-                    sys.executable, str(PATCH), "--path", str(source),
-                    "--out", str(work), "--list",
-                ]
-                listing = self.run_logged(listing_args)
-                if listing.returncode != 0:
-                    raise RuntimeError(
-                        f"patch listing failed with exit code {listing.returncode}"
-                    )
-                needs_patch = "needs patching" in listing.stdout.lower()
                 self.step(2)
-                if needs_patch:
-                    self.run_logged([
-                        sys.executable, str(PATCH), "--path", str(source),
-                        "--out", str(target), "--all",
-                    ])
-                else:
-                    self.log("No patch required; copying source without modification.")
+                if skip_patch:
+                    self.log("Skipping V1.005 patch; copying source unchanged.")
                     shutil.copytree(source, target)
+                else:
+                    listing_args = [
+                        sys.executable, str(PATCH), "--path", str(source),
+                        "--list",
+                    ]
+                    listing = self.run_logged(listing_args)
+                    if listing.returncode != 0:
+                        raise RuntimeError(
+                            f"patch listing failed with exit code {listing.returncode}"
+                        )
+                    needs_patch = "needs patching" in (
+                        listing.stdout + listing.stderr
+                    ).lower()
+                    if needs_patch:
+                        shutil.copytree(source, target)
+                        patched = self.run_logged([
+                            sys.executable, str(PATCH), "--path", str(target),
+                            "--all", "--no-backup",
+                        ])
+                        if patched.returncode != 0:
+                            raise RuntimeError(
+                                f"patch failed with exit code {patched.returncode}"
+                            )
+                    else:
+                        self.log("No patch required; copying source without modification.")
+                        shutil.copytree(source, target)
                 self.step(3)
                 if self.confirm("Variants", "Do you want to add variants?"):
                     self.make_variants(target)
