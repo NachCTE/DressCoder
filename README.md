@@ -54,6 +54,15 @@ Para iniciar la aplicación mostrando la terminal y poder revisar errores:
 python src\frontend.py
 ```
 
+Para generar una versión Windows sin consola, instala PyInstaller y ejecuta:
+
+```powershell
+python -m pip install pyinstaller
+python -m PyInstaller --noconfirm --clean --onedir --noconsole --name DressCoder src\frontend.py
+```
+
+El ejecutable se genera en `dist\DressCoder\DressCoder.exe`. Distribuye la carpeta completa `dist\DressCoder`, no solamente el `.exe`.
+
 El patcher oficial no se distribuye dentro de este repositorio. Puedes instalarlo de dos formas:
 
 - Usa **Auto install patcher** para descargar automáticamente la release oficial desde GitHub. DressCoder verifica su SHA-256 y la instala localmente en `src\tools\patcher`.
