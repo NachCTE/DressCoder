@@ -102,3 +102,24 @@ appsettings.*.local.json
 Thumbs.db
 desktop.ini
 .DS_Store
+
+########################################
+# Python
+########################################
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+
+########################################
+# DressCoder / patcher runtime artifacts
+########################################
+**/parts out/
+**/.dresscoder-work-*/
+tools/*

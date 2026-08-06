@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
+import urllib.error
 import uuid
+import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 import tkinter as tk
@@ -21,6 +26,12 @@ PATCHER = ROOT / "tools" / "patcher"
 PATCH = PATCHER / "patch.py"
 PARTS = PATCHER / "devtools" / "parts.py"
 CONVERT = PATCHER / "convert.py"
+PATCHER_RELEASE = "v1.5.0"
+PATCHER_DOWNLOAD_URL = (
+    "https://github.com/nikolaybutnik/FFVII-Rebirth-Mesh-Patcher/releases/"
+    f"download/{PATCHER_RELEASE}/FFVII-Rebirth-Mesh-Patcher-v1.5.0.zip"
+)
+PATCHER_SHA256 = "353e90aaa4f3b5b8cda26a7f82451836d23e67260c3260da8b9b700dfe53b3d4"
 
 
 @dataclass
@@ -54,6 +65,20 @@ def run_command(args: list[str]) -> subprocess.CompletedProcess[str]:
         args, cwd=PATCHER, text=True, encoding="utf-8",
         errors="replace", capture_output=True, check=False,
     )
+
+
+def patcher_ready() -> bool:
+    return PATCH.exists() and PARTS.exists() and CONVERT.exists()
+
+
+def safe_extract(zip_path: Path, destination: Path) -> None:
+    destination = destination.resolve()
+    with zipfile.ZipFile(zip_path) as archive:
+        for member in archive.infolist():
+            target = (destination / member.filename).resolve()
+            if target != destination and destination not in target.parents:
+                raise RuntimeError(f"archive contains an unsafe path: {member.filename}")
+        archive.extractall(destination)
 
 
 class VariantDialog:
@@ -137,8 +162,12 @@ class Frontend:
         self.destination = tk.StringVar()
         self.skin_name = tk.StringVar()
         self.start_button: ttk.Button
+        self.install_button: ttk.Button
+        self.dependencies_button: ttk.Button
+        self.tool_status = tk.StringVar()
         self.log = tk.Text(root, height=20, state="disabled", wrap="word")
         self.build_ui()
+        self.refresh_tool_status()
 
     def build_ui(self) -> None:
         form = ttk.Frame(self.root, padding=12)
@@ -148,8 +177,19 @@ class Frontend:
         ttk.Label(form, text="Skin name:").grid(row=2, column=0, sticky="w", pady=5)
         ttk.Entry(form, textvariable=self.skin_name).grid(row=2, column=1, sticky="ew", padx=6)
         form.columnconfigure(1, weight=1)
+        tools = ttk.Frame(form)
+        tools.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        ttk.Label(tools, textvariable=self.tool_status).pack(side="left")
+        self.install_button = ttk.Button(
+            tools, text="Install patcher", command=self.install_patcher
+        )
+        self.install_button.pack(side="right", padx=(6, 0))
+        self.dependencies_button = ttk.Button(
+            tools, text="Install dependencies", command=self.install_dependencies
+        )
+        self.dependencies_button.pack(side="right")
         self.start_button = ttk.Button(form, text="Start process", command=self.start)
-        self.start_button.grid(row=3, column=0, columnspan=3, pady=(10, 4))
+        self.start_button.grid(row=4, column=0, columnspan=3, pady=(10, 4))
         ttk.Label(
             self.root, text="Patch/copy the skin, optionally add variants, then build Dresscode.",
             padding=(12, 0),
@@ -180,6 +220,17 @@ class Frontend:
         if path:
             self.destination.set(path)
 
+    def refresh_tool_status(self) -> None:
+        installed = patcher_ready()
+        self.tool_status.set(
+            f"Patcher {PATCHER_RELEASE}: "
+            + ("installed" if installed else "not installed")
+        )
+        if hasattr(self, "install_button"):
+            self.install_button.configure(state="disabled" if installed else "normal")
+            self.dependencies_button.configure(state="normal" if installed else "disabled")
+            self.start_button.configure(state="normal" if installed else "disabled")
+
     def append_log(self, text: str) -> None:
         self.log.configure(state="normal")
         self.log.insert("end", text.rstrip() + "\n")
@@ -201,6 +252,13 @@ class Frontend:
         return result[0] if result else None
 
     def start(self) -> None:
+        if not patcher_ready():
+            messagebox.showerror(
+                "Patcher missing",
+                "Install the FFVII Rebirth Mesh Patcher before starting.",
+                parent=self.root,
+            )
+            return
         source = Path(self.source.get().strip())
         destination = Path(self.destination.get().strip())
         name = self.skin_name.get().strip() or source.name
@@ -229,6 +287,138 @@ class Frontend:
         threading.Thread(
             target=self.worker, args=(source, destination, name, target), daemon=True
         ).start()
+
+    def install_patcher(self) -> None:
+        if patcher_ready():
+            messagebox.showinfo(
+                "Patcher installed",
+                f"FFVII Rebirth Mesh Patcher {PATCHER_RELEASE} is already installed.",
+                parent=self.root,
+            )
+            return
+        self.install_button.configure(state="disabled")
+        self.dependencies_button.configure(state="disabled")
+        self.start_button.configure(state="disabled")
+        threading.Thread(target=self.install_patcher_worker, daemon=True).start()
+
+    def install_patcher_worker(self) -> None:
+        archive_path = None
+        staging = None
+        try:
+            self.ui_log(f"Downloading FFVII Rebirth Mesh Patcher {PATCHER_RELEASE}...")
+            with tempfile.NamedTemporaryFile(
+                prefix="dresscoder-patcher-", suffix=".zip", delete=False
+            ) as stream:
+                archive_path = Path(stream.name)
+                with urllib.request.urlopen(PATCHER_DOWNLOAD_URL, timeout=60) as response:
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        stream.write(chunk)
+            digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            if digest != PATCHER_SHA256:
+                raise RuntimeError(
+                    f"download checksum mismatch: expected {PATCHER_SHA256}, got {digest}"
+                )
+
+            staging = Path(tempfile.mkdtemp(prefix="dresscoder-patcher-"))
+            safe_extract(archive_path, staging)
+            patch_candidates = [
+                path for path in staging.rglob("patch.py")
+                if (path.parent / "convert.py").is_file()
+                and (path.parent / "devtools" / "parts.py").is_file()
+            ]
+            if len(patch_candidates) != 1:
+                raise RuntimeError(
+                    "the release archive does not contain exactly one valid patcher"
+                )
+            PATCHER.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(patch_candidates[0].parent, PATCHER, dirs_exist_ok=True)
+            if not patcher_ready():
+                raise RuntimeError("patcher installation is incomplete")
+            self.ui_log(f"Patcher {PATCHER_RELEASE} installed.")
+            self.root.after(0, self.refresh_tool_status)
+        except (OSError, RuntimeError, urllib.error.URLError, zipfile.BadZipFile) as exc:
+            self.ui_log(f"ERROR: patcher installation failed: {exc}")
+            error_message = str(exc)
+            self.root.after(
+                0,
+                lambda: messagebox.showerror(
+                    "Patcher installation failed", error_message, parent=self.root
+                ),
+            )
+        finally:
+            if archive_path and archive_path.exists():
+                archive_path.unlink()
+            if staging and staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+            self.root.after(0, self.refresh_tool_status)
+
+    def install_dependencies(self) -> None:
+        if not patcher_ready():
+            messagebox.showerror(
+                "Patcher missing",
+                "Install the patcher before installing its dependencies.",
+                parent=self.root,
+            )
+            return
+        requirements = PATCHER / "requirements.txt"
+        if not requirements.is_file():
+            messagebox.showerror(
+                "Requirements missing",
+                f"Could not find {requirements}.",
+                parent=self.root,
+            )
+            return
+        self.install_button.configure(state="disabled")
+        self.dependencies_button.configure(state="disabled")
+        self.start_button.configure(state="disabled")
+        threading.Thread(
+            target=self.install_dependencies_worker,
+            args=(requirements,),
+            daemon=True,
+        ).start()
+
+    def install_dependencies_worker(self, requirements: Path) -> None:
+        command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "-r",
+            str(requirements),
+        ]
+        self.ui_log("$ " + subprocess.list2cmdline(command))
+        completed = subprocess.run(
+            command,
+            cwd=PATCHER,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+        )
+        output = (completed.stdout + completed.stderr).strip()
+        if output:
+            self.ui_log(output)
+        if completed.returncode == 0:
+            self.ui_log("Dependencies installed.")
+        else:
+            self.ui_log(
+                f"ERROR: dependency installation failed with exit code "
+                f"{completed.returncode}"
+            )
+            self.root.after(
+                0,
+                lambda: messagebox.showerror(
+                    "Dependency installation failed",
+                    f"pip exited with code {completed.returncode}.",
+                    parent=self.root,
+                ),
+            )
+        self.root.after(0, self.refresh_tool_status)
 
     def worker(self, source: Path, destination: Path, name: str, target: Path) -> None:
         try:
