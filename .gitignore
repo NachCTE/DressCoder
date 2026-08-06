@@ -81,11 +81,11 @@ staging/
 # Salidas generadas por las herramientas de spike en tools/*/output, tools/*/pak_*
 # y el plugin de prueba ensamblado — artefactos de diagnóstico, no fuente.
 ########################################
-tools/*/output/
-tools/*/pak_extract/
-tools/*/pak_stage*/
-tools/*/pak_out/
-tools/test-plugin-output/
+src/tools/*/output/
+src/tools/*/pak_extract/
+src/tools/*/pak_stage*/
+src/tools/*/pak_out/
+src/tools/test-plugin-output/
 tools/diag-ucas/*.bin
 
 ########################################
@@ -122,4 +122,4 @@ env/
 ########################################
 **/parts out/
 **/.dresscoder-work-*/
-tools/*
+src/tools/*
