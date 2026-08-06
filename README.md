@@ -9,6 +9,7 @@ DressCoder automatiza el flujo de trabajo del patcher oficial:
 - Genera `dresscode.json` con nombre, autor, descripción y miniatura.
 - Convierte la skin al formato Dresscode.
 - Permite abrir directamente la carpeta final para copiarla a `Mods`.
+- Permite parchear varias skins de V1.004 a V1.005 o revertirlas a V1.004.
 
 > DressCoder no incluye mods ni archivos del juego. Debes trabajar con skins que ya tengas y obtenerlas de sus autores correspondientes.
 
@@ -20,6 +21,12 @@ DressCoder automatiza el flujo de trabajo del patcher oficial:
 - NumPy, instalado mediante `requirements.txt`.
 
 ## Instalación
+
+Instala Python 3.9 o superior y verifica que esté disponible como `python`:
+
+```powershell
+python --version
+```
 
 Desde la carpeta del proyecto:
 
@@ -47,6 +54,8 @@ El patcher oficial no se distribuye dentro de este repositorio. Cuando sea neces
 6. Decide si quieres crear variantes.
 7. Al terminar, DressCoder ofrece abrir la carpeta:
 
+Si la skin ya está preparada para V1.005, puedes activar **Saltar parcheo V1.005**. DressCoder copiará la skin sin modificar al destino y continuará con variantes, metadatos y conversión Dresscode.
+
 ```text
 <destino>\<nombre de skin>\dresscode
 ```
@@ -56,6 +65,17 @@ La aplicación guarda los últimos datos seleccionados en:
 ```text
 %LOCALAPPDATA%\DressCoder\settings.json
 ```
+
+### Parcheo por lotes
+
+La pestaña **Parchar skins** permite agregar varias carpetas y elegir una dirección:
+
+- V1.004 a V1.005.
+- V1.005 a V1.004.
+
+Cada resultado se crea dentro de la raíz elegida usando el nombre original de su carpeta. Al terminar, DressCoder ofrece abrir la carpeta de destino.
+
+Para conservar archivos auxiliares que no forman parte de los contenedores del mod, DressCoder primero copia cada skin completa y luego ejecuta el patcher sobre esa copia con `--no-backup`. La carpeta original nunca se modifica.
 
 ## Imágenes
 
