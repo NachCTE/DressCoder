@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Callable, List, Optional, Tuple, TypeVar
+from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parent
@@ -21,7 +21,6 @@ PATCHER = ROOT / "tools" / "patcher"
 PATCH = PATCHER / "patch.py"
 PARTS = PATCHER / "devtools" / "parts.py"
 CONVERT = PATCHER / "convert.py"
-T = TypeVar("T")
 
 
 @dataclass
@@ -59,7 +58,7 @@ def run_command(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 class VariantDialog:
     def __init__(self, parent: tk.Misc, parts: list[Part]):
-        self.result: Optional[List[Tuple[str, List[int]]]] = None
+        self.result = None
         self.done = threading.Event()
         self.window = tk.Toplevel(parent)
         self.window.title("Create variants")
@@ -67,11 +66,20 @@ class VariantDialog:
         self.window.transient(parent)
         self.window.protocol("WM_DELETE_WINDOW", self.finish)
         self.vars = [(part, tk.BooleanVar(value=False)) for part in parts]
+        self.primary_model = parts[0].model
         self.variant_name = tk.StringVar()
 
         ttk.Label(self.window, text="Select parts to omit, then name and add a variant.").pack(
             anchor="w", padx=12, pady=(12, 4)
         )
+        ttk.Label(
+            self.window,
+            text=(
+                f"Only the primary model ({self.primary_model}) can be changed. "
+                "Condition and secondary models stay identical between outfits."
+            ),
+            wraplength=720,
+        ).pack(anchor="w", padx=12, pady=(0, 8))
         frame = ttk.Frame(self.window)
         frame.pack(fill="both", expand=True, padx=12)
         canvas = tk.Canvas(frame, highlightthickness=0)
@@ -86,6 +94,7 @@ class VariantDialog:
             ttk.Checkbutton(
                 inner, text=f"{part.number}: {part.name}  [{part.model}]",
                 variable=variable,
+                state="normal" if part.model == self.primary_model else "disabled",
             ).pack(anchor="w", pady=1)
 
         entry = ttk.Frame(self.window)
@@ -177,7 +186,7 @@ class Frontend:
         self.log.see("end")
         self.log.configure(state="disabled")
 
-    def ui_call(self, callback: Callable[[], T]) -> Optional[T]:
+    def ui_call(self, callback):
         event = threading.Event()
         result = []
 
@@ -288,7 +297,17 @@ class Frontend:
         if not parts:
             raise RuntimeError("parts.py returned no editable parts.")
         variants = self.ui_call(lambda: self.show_variant_dialog(parts))
+        primary_model = parts[0].model
+        allowed_numbers = {
+            part.number for part in parts if part.model == primary_model
+        }
         for variant, omitted in variants or []:
+            invalid = sorted(set(omitted) - allowed_numbers)
+            if invalid:
+                raise RuntimeError(
+                    "variant selection contains parts from a secondary model: "
+                    + ", ".join(map(str, invalid))
+                )
             if Path(variant).name != variant or variant in (".", ".."):
                 raise RuntimeError(f"invalid variant name: {variant!r}")
             out = target / "Variants" / variant

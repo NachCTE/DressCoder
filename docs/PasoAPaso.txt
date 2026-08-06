@@ -18,6 +18,9 @@ PREGUNTAR SI QUIERE AGREGAR VARIANTES A LA SKIN (se pueden crear varias):
     python devtools\parts.py "destinationPath\skinName" --list
 
     mostrar las partes y sus partId, y permitir al usuario seleccionar las partes que quiere omitir para crear la variante con un checkbox o algo similar
+    Solo se habilitan partes del modelo principal. Las partes de modelos
+    `_Condition` u otros slots se mantienen iguales entre la skin base y sus
+    variantes para evitar conflictos al convertir a Dresscode.
 
     preguntar el nombre de la variante a crear (variantName)
 
