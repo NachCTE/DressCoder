@@ -154,6 +154,15 @@ class VariantDialog:
 
 
 class Frontend:
+    WORKFLOW_STEPS = (
+        "Checking patch format",
+        "Patching or copying skin",
+        "Deciding whether to add variants",
+        "Listing and creating variants",
+        "Writing metadata",
+        "Converting and completing",
+    )
+
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("DressCoder")
@@ -165,7 +174,11 @@ class Frontend:
         self.install_button: ttk.Button
         self.dependencies_button: ttk.Button
         self.tool_status = tk.StringVar()
-        self.log = tk.Text(root, height=20, state="disabled", wrap="word")
+        self.step_text = tk.StringVar(value="Ready to start")
+        self.progress = tk.DoubleVar(value=0)
+        self.log_lines: list[str] = []
+        self.detail_window = None
+        self.detail_log = None
         self.build_ui()
         self.refresh_tool_status()
 
@@ -194,7 +207,16 @@ class Frontend:
             self.root, text="Patch/copy the skin, optionally add variants, then build Dresscode.",
             padding=(12, 0),
         ).pack(anchor="w")
-        self.log.pack(fill="both", expand=True, padx=12, pady=12)
+        status = ttk.Frame(self.root, padding=12)
+        status.pack(fill="x")
+        ttk.Label(status, textvariable=self.step_text).pack(anchor="w")
+        ttk.Progressbar(
+            status, variable=self.progress, maximum=len(self.WORKFLOW_STEPS),
+            mode="determinate",
+        ).pack(fill="x", pady=(6, 6))
+        ttk.Button(status, text="Detailed view", command=self.show_detailed_view).pack(
+            anchor="e"
+        )
 
     @staticmethod
     def add_folder_row(
@@ -232,10 +254,59 @@ class Frontend:
             self.start_button.configure(state="normal" if installed else "disabled")
 
     def append_log(self, text: str) -> None:
-        self.log.configure(state="normal")
-        self.log.insert("end", text.rstrip() + "\n")
-        self.log.see("end")
-        self.log.configure(state="disabled")
+        line = text.rstrip()
+        if not line:
+            return
+        self.log_lines.append(line)
+        if self.detail_log is not None:
+            self.detail_log.configure(state="normal")
+            self.detail_log.insert("end", line + "\n")
+            self.detail_log.see("end")
+            self.detail_log.configure(state="disabled")
+
+    def show_detailed_view(self) -> None:
+        if self.detail_window is not None and self.detail_window.winfo_exists():
+            self.detail_window.deiconify()
+            self.detail_window.lift()
+            return
+        window = tk.Toplevel(self.root)
+        self.detail_window = window
+        window.title("Detailed logs")
+        window.geometry("800x500")
+        window.transient(self.root)
+        frame = ttk.Frame(window, padding=12)
+        frame.pack(fill="both", expand=True)
+        log = tk.Text(frame, wrap="word", state="disabled")
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=log.yview)
+        log.configure(yscrollcommand=scroll.set)
+        log.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.detail_log = log
+        if self.log_lines:
+            log.configure(state="normal")
+            log.insert("end", "\n".join(self.log_lines) + "\n")
+            log.see("end")
+            log.configure(state="disabled")
+        close_button = ttk.Button(window, text="Close", command=window.destroy)
+        close_button.pack(pady=(0, 12))
+
+        def clear_detail_references() -> None:
+            self.detail_window = None
+            self.detail_log = None
+
+        def close() -> None:
+            clear_detail_references()
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", close)
+        close_button.configure(command=close)
+
+    def set_step(self, number: int) -> None:
+        self.step_text.set(f"Step {number} of {len(self.WORKFLOW_STEPS)}: {self.WORKFLOW_STEPS[number - 1]}")
+        self.progress.set(number - 1)
+
+    def ui_step(self, number: int) -> None:
+        self.root.after(0, self.set_step, number)
 
     def ui_call(self, callback):
         event = threading.Event()
@@ -283,6 +354,7 @@ class Frontend:
         ):
             return
         self.start_button.configure(state="disabled")
+        self.set_step(1)
         self.append_log(f"Starting: {source} -> {target}")
         threading.Thread(
             target=self.worker, args=(source, destination, name, target), daemon=True
@@ -426,6 +498,7 @@ class Frontend:
                 shutil.rmtree(target)
             work = destination / f".dresscoder-work-{uuid.uuid4().hex}"
             try:
+                self.ui_step(1)
                 listing_args = [
                     sys.executable, str(PATCH), "--path", str(source),
                     "--out", str(work), "--list",
@@ -436,20 +509,26 @@ class Frontend:
                 if listing.returncode != 0:
                     raise RuntimeError(f"patch listing failed with exit code {listing.returncode}")
                 needs_patch = "needs patching" in listing.stdout.lower()
+                self.ui_step(2)
                 if needs_patch:
                     self.log_command([sys.executable, str(PATCH), "--path", str(source),
                                       "--out", str(target), "--all"])
                 else:
                     self.ui_log("No patch required; copying source without modification.")
                     shutil.copytree(source, target)
+                self.ui_step(3)
                 if self.ui_call(lambda: messagebox.askyesno(
                     "Variants", "Do you want to add variants?", parent=self.root
                 )):
                     self.make_variants(target)
+                else:
+                    self.ui_step(4)
+                self.ui_step(5)
                 self.write_metadata(target, name)
-                self.log_command([sys.executable, str(CONVERT), str(target),
-                                  "--out", str(target / "dresscode"), "--yes"])
+                self.ui_step(6)
+                self.convert_to_dresscode(target)
                 self.ui_log("Finished successfully.")
+                self.root.after(0, self.progress.set, len(self.WORKFLOW_STEPS))
                 self.ui_call(lambda: messagebox.showinfo("Done", "Dresscode conversion completed.",
                                                          parent=self.root))
             finally:
@@ -476,7 +555,41 @@ class Frontend:
         if completed.returncode != 0:
             raise RuntimeError(f"command failed with exit code {completed.returncode}")
 
+    def convert_to_dresscode(self, target: Path) -> None:
+        """Run the official converter and relocate its sibling output."""
+        staging = Path(tempfile.mkdtemp(
+            prefix=".dresscoder-convert-", dir=str(target.parent)
+        ))
+        staged_source = staging / target.name
+        output = None
+        try:
+            shutil.move(str(target), str(staged_source))
+            command = [sys.executable, str(CONVERT), str(staged_source), "--yes"]
+            self.log_command(command)
+            candidates = sorted(
+                path for path in staging.iterdir()
+                if path.is_dir() and path.name.endswith(" (Dresscode)")
+            )
+            if len(candidates) != 1:
+                raise RuntimeError(
+                    "the converter did not produce exactly one Dresscode folder"
+                )
+            output = candidates[0]
+            shutil.move(str(staged_source), str(target))
+            destination = target / "dresscode"
+            if destination.exists():
+                shutil.rmtree(destination)
+            shutil.move(str(output), str(destination))
+        except Exception:
+            if not target.exists() and staged_source.exists():
+                shutil.move(str(staged_source), str(target))
+            raise
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+
     def make_variants(self, target: Path) -> None:
+        self.ui_step(4)
         command = [sys.executable, str(PARTS), str(target), "--list"]
         self.ui_log("$ " + subprocess.list2cmdline(command))
         listed = run_command(command)
