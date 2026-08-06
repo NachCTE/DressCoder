@@ -36,7 +36,19 @@ python -m pip install -r requirements.txt
 
 ## Uso
 
-Ejecuta la interfaz con:
+Ejecuta la interfaz con el launcher recomendado:
+
+```text
+DressCoder.vbs
+```
+
+Este launcher usa `pythonw.exe`, no abre una ventana de terminal y ejecuta el frontend desde la carpeta correcta. Si Windows no tiene asociado el archivo `.vbs` con Windows Script Host, puedes ejecutarlo con:
+
+```powershell
+wscript.exe DressCoder.vbs
+```
+
+Para iniciar la aplicación mostrando la terminal y poder revisar errores:
 
 ```powershell
 python src\frontend.py
