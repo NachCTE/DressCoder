@@ -14,10 +14,28 @@ UI_TEXT = {
         "omit": "omit",
         "none": "none",
         "subtitle": "Build polished Dresscode mods from your custom skins.",
+        "help": "Help",
+        "help_title": "How to use DressCoder",
+        "help_message": (
+            "1. Select the source skin folder and a destination root.\n"
+            "2. Enter the skin metadata. Author, description, and photo are optional.\n"
+            "3. Click Start conversion and choose whether to create variants.\n"
+            "4. When it finishes, open:\n"
+            "   destination\\skin_name\\dresscode\n\n"
+            "Copy the contents of that dresscode folder, including the generated "
+            ".pak, .ucas, and .utoc files, into the game's Mods folder.\n"
+            "Do not copy the work folder or dresscode.json."
+        ),
         "project_setup": "Project setup",
         "source": "Source skin folder",
         "destination": "Destination root",
         "skin_name": "Skin name",
+        "author": "Author",
+        "description": "Description",
+        "photo": "Photo",
+        "select_photo": "Select skin photo",
+        "photo_browse": "Choose image",
+        "remove_photo": "Remove",
         "browse": "Browse",
         "install_patcher": "Install patcher",
         "install_dependencies": "Install dependencies",
@@ -47,6 +65,9 @@ UI_TEXT = {
         "starting": "Starting: {source} -> {target}",
         "done": "Done",
         "conversion_completed": "Dresscode conversion completed.",
+        "open_folder_title": "Open converted skin",
+        "open_folder_question": "Would you like to open the converted skin folder?",
+        "open_folder_failed": "Could not open the converted skin folder",
         "process_failed": "Process failed",
         "patcher_installed": "Patcher installed",
         "already_installed": "FFVII Rebirth Mesh Patcher {release} is already installed.",
@@ -76,10 +97,28 @@ UI_TEXT = {
         "omit": "omite",
         "none": "ninguna",
         "subtitle": "Crea mods Dresscode a partir de tus skins personalizadas.",
+        "help": "Ayuda",
+        "help_title": "Cómo usar DressCoder",
+        "help_message": (
+            "1. Selecciona la carpeta de origen de la skin y una raíz de destino.\n"
+            "2. Completa los metadatos. Autor, descripción y foto son opcionales.\n"
+            "3. Pulsa Iniciar conversión y decide si quieres crear variantes.\n"
+            "4. Al finalizar, abre:\n"
+            "   destino\\nombre_skin\\dresscode\n\n"
+            "Copia el contenido de esa carpeta dresscode, incluidos los archivos "
+            ".pak, .ucas y .utoc generados, dentro de la carpeta Mods del juego.\n"
+            "No copies la carpeta de trabajo ni dresscode.json."
+        ),
         "project_setup": "Configuración del proyecto",
         "source": "Carpeta de la skin de origen",
         "destination": "Raíz de destino",
         "skin_name": "Nombre de la skin",
+        "author": "Autor",
+        "description": "Descripción",
+        "photo": "Foto",
+        "select_photo": "Selecciona la foto de la skin",
+        "photo_browse": "Elegir imagen",
+        "remove_photo": "Quitar",
         "browse": "Examinar",
         "install_patcher": "Instalar patcher",
         "install_dependencies": "Instalar dependencias",
@@ -109,6 +148,9 @@ UI_TEXT = {
         "starting": "Iniciando: {source} -> {target}",
         "done": "Completado",
         "conversion_completed": "La conversión a Dresscode finalizó correctamente.",
+        "open_folder_title": "Abrir skin portada",
+        "open_folder_question": "¿Quieres abrir la carpeta de la skin portada?",
+        "open_folder_failed": "No se pudo abrir la carpeta de la skin portada",
         "process_failed": "Proceso fallido",
         "patcher_installed": "Patcher instalado",
         "already_installed": "FFVII Rebirth Mesh Patcher {release} ya está instalado.",

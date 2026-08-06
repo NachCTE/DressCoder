@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 import urllib.error
 import zipfile
@@ -105,28 +107,38 @@ class VariantDialog:
 
 
 class Frontend:
+    CACHE_PATH = (
+        Path.home() / "AppData" / "Local" / "DressCoder" / "settings.json"
+    )
+    # Windows 11 dark-mode neutral palette (Mica-inspired surfaces + system accent).
     COLORS = {
-        "background": "#111318",
-        "card": "#1a1d23",
-        "card_alt": "#20242c",
-        "input": "#252a33",
-        "border": "#303641",
-        "text": "#f3f4f6",
-        "muted": "#a7adb8",
-        "accent": "#4cc2ff",
-        "accent_hover": "#75d0ff",
-        "success": "#6ed7a0",
-        "danger": "#ff8f8f",
+        "background": "#202020",
+        "card": "#2c2c2c",
+        "card_alt": "#333333",
+        "input": "#2b2b2b",
+        "border": "#3d3d3d",
+        "divider": "#3a3a3a",
+        "text": "#ffffff",
+        "muted": "#c5c5c5",
+        "subtle": "#9a9a9a",
+        "accent": "#60cdff",
+        "accent_hover": "#7fd4ff",
+        "accent_pressed": "#4cc2ff",
+        "success": "#6ccb5f",
+        "danger": "#ff99a4",
     }
 
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("DressCoder")
-        self.root.geometry("900x720")
+        self.root.geometry("900x1000")
         self.language = tk.StringVar(value="es")
         self.source = tk.StringVar()
         self.destination = tk.StringVar()
         self.skin_name = tk.StringVar()
+        self.author = tk.StringVar()
+        self.description = tk.StringVar()
+        self.photo = tk.StringVar()
         self.tool_status = tk.StringVar()
         self.step_text = tk.StringVar()
         self.progress = tk.DoubleVar(value=0)
@@ -134,10 +146,79 @@ class Frontend:
         self.log_lines = []
         self.detail_window = None
         self.detail_log = None
+        self.status_dot = None
+        self.load_cache()
         self.configure_theme()
         self.step_text.set(self.t("ready"))
         self.build_ui()
         self.refresh_tool_status()
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.after(10, lambda: self._use_dark_titlebar(self.root))
+
+    def load_cache(self) -> None:
+        if not self.CACHE_PATH.is_file():
+            return
+        try:
+            with self.CACHE_PATH.open("r", encoding="utf-8") as stream:
+                data = json.load(stream)
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(data, dict):
+            return
+        values = {
+            "source": self.source,
+            "destination": self.destination,
+            "skin_name": self.skin_name,
+            "author": self.author,
+            "description": self.description,
+            "photo": self.photo,
+        }
+        for key, variable in values.items():
+            value = data.get(key)
+            if isinstance(value, str):
+                variable.set(value)
+        language = data.get("language")
+        if language in ("es", "en"):
+            self.language.set(language)
+
+    def save_cache(self) -> None:
+        data = {
+            "language": self.language.get(),
+            "source": self.source.get(),
+            "destination": self.destination.get(),
+            "skin_name": self.skin_name.get(),
+            "author": self.author.get(),
+            "description": self.description.get(),
+            "photo": self.photo.get(),
+        }
+        self.CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.CACHE_PATH.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(data, stream, indent=2, ensure_ascii=False)
+            stream.write("\n")
+        temporary.replace(self.CACHE_PATH)
+
+    def close(self) -> None:
+        try:
+            self.save_cache()
+        except OSError as exc:
+            self.append_log("WARNING: could not save settings: " + str(exc))
+        self.root.destroy()
+
+    @staticmethod
+    def _use_dark_titlebar(window: tk.Misc) -> None:
+        """Enable the native Windows 11 dark title bar for a top-level window."""
+        try:
+            import ctypes
+            window.update_idletasks()
+            handle = ctypes.windll.user32.GetParent(window.winfo_id())
+            value = ctypes.c_int(1)
+            for attribute in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (20 modern, 19 legacy)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    handle, attribute, ctypes.byref(value), ctypes.sizeof(value)
+                )
+        except (AttributeError, OSError):
+            pass  # Non-Windows platform or API unavailable; ignore silently.
 
     def t(self, key: str, **values: object) -> str:
         return UI_TEXT[self.language.get()][key].format(**values)
@@ -149,18 +230,24 @@ class Frontend:
     def configure_theme(self) -> None:
         colors = self.COLORS
         self.root.configure(bg=colors["background"])
+        available = set(tkfont.families(self.root))
+        def pick(*candidates: str) -> str:
+            for name in candidates:
+                if name in available:
+                    return name
+            return "Segoe UI"
+        display_family = pick("Segoe UI Variable Display", "Segoe UI Semibold", "Segoe UI")
+        text_family = pick("Segoe UI Variable Text", "Segoe UI")
+        semibold_family = pick(
+            "Segoe UI Variable Text Semibold", "Segoe UI Semibold", "Segoe UI"
+        )
         self.fonts = {
-            "body": tkfont.Font(self.root, family="Segoe UI", size=10),
-            "title": tkfont.Font(
-                self.root, family="Segoe UI Semibold", size=24, weight="bold"
-            ),
-            "subtitle": tkfont.Font(self.root, family="Segoe UI", size=10),
-            "section": tkfont.Font(
-                self.root, family="Segoe UI Semibold", size=11, weight="bold"
-            ),
-            "button": tkfont.Font(
-                self.root, family="Segoe UI Semibold", size=10, weight="bold"
-            ),
+            "body": tkfont.Font(self.root, family=text_family, size=10),
+            "title": tkfont.Font(self.root, family=display_family, size=26),
+            "subtitle": tkfont.Font(self.root, family=text_family, size=10),
+            "section": tkfont.Font(self.root, family=semibold_family, size=11),
+            "button": tkfont.Font(self.root, family=semibold_family, size=10),
+            "small": tkfont.Font(self.root, family=text_family, size=9),
         }
         self.root.option_add("*Font", self.fonts["body"])
         style = ttk.Style(self.root)
@@ -170,109 +257,72 @@ class Frontend:
         style.configure("Muted.TLabel", foreground=colors["muted"],
                         background=colors["background"])
         style.configure("Card.TLabel", foreground=colors["text"],
-                        background=colors["card"])
+                        background=colors["card"], font=self.fonts["body"])
         style.configure("CardMuted.TLabel", foreground=colors["muted"],
                         background=colors["card"])
+        style.configure("CardSubtle.TLabel", foreground=colors["subtle"],
+                        background=colors["card"], font=self.fonts["small"])
         style.configure("Title.TLabel", font=self.fonts["title"],
                         foreground=colors["text"], background=colors["background"])
         style.configure("Subtitle.TLabel", font=self.fonts["subtitle"],
                         foreground=colors["muted"], background=colors["background"])
         style.configure("Section.TLabel", font=self.fonts["section"],
                         foreground=colors["text"], background=colors["card"])
+        style.configure("Divider.TSeparator", background=colors["divider"])
         style.configure("TEntry", fieldbackground=colors["input"],
                         foreground=colors["text"], insertcolor=colors["text"],
                         bordercolor=colors["border"], lightcolor=colors["border"],
-                        darkcolor=colors["border"], padding=8)
-        style.map("TEntry", bordercolor=[("focus", colors["accent"])])
-        style.configure("TButton", font=self.fonts["button"], padding=(14, 9),
+                        darkcolor=colors["border"], padding=9, relief="flat")
+        style.map("TEntry", bordercolor=[("focus", colors["accent"])],
+                  lightcolor=[("focus", colors["accent"])],
+                  darkcolor=[("focus", colors["accent"])])
+        style.configure("TButton", font=self.fonts["button"], padding=(16, 9),
                         background=colors["card_alt"], foreground=colors["text"],
-                        bordercolor=colors["border"])
-        style.map("TButton", background=[("active", colors["border"])])
+                        bordercolor=colors["border"], relief="flat", borderwidth=1)
+        style.map("TButton", background=[("active", colors["border"]), ("disabled", colors["card"])],
+                  foreground=[("disabled", colors["subtle"])])
         style.configure("Secondary.TButton", background=colors["card_alt"],
                         foreground=colors["text"])
+        style.map("Secondary.TButton", background=[("active", colors["border"])])
         style.configure("Accent.TButton", background=colors["accent"],
-                        foreground="#071016", borderwidth=0)
-        style.map("Accent.TButton", background=[("active", colors["accent_hover"])])
-        style.configure("Language.TButton", font=self.fonts["body"],
-                        padding=(10, 5), background=colors["card_alt"],
-                        foreground=colors["muted"], borderwidth=0)
+                        foreground="#0a0a0a", borderwidth=0)
+        style.map("Accent.TButton",
+                  background=[("disabled", colors["card_alt"]),
+                              ("pressed", colors["accent_pressed"]),
+                              ("active", colors["accent_hover"])],
+                  foreground=[("disabled", colors["subtle"])])
+        style.configure("Language.TButton", font=self.fonts["small"],
+                        padding=(12, 6), background=colors["card"],
+                        foreground=colors["muted"], borderwidth=0, relief="flat")
         style.map("Language.TButton", background=[("active", colors["border"])])
         style.configure("SelectedLanguage.TButton", font=self.fonts["button"],
-                        padding=(10, 5), background=colors["accent"],
-                        foreground="#071016", borderwidth=0)
+                        padding=(12, 6), background=colors["accent"],
+                        foreground="#0a0a0a", borderwidth=0, relief="flat")
+        style.configure("Pill.TFrame", background=colors["card"])
         style.configure("TCheckbutton", background=colors["card"],
-                        foreground=colors["text"], indicatorbackground=colors["input"])
-        style.map("TCheckbutton", background=[("active", colors["card"])])
+                        foreground=colors["text"], indicatorbackground=colors["input"],
+                        indicatorcolor=colors["input"])
+        style.map("TCheckbutton", background=[("active", colors["card"])],
+                  indicatorbackground=[("selected", colors["accent"])])
         style.configure("Modern.Horizontal.TProgressbar", troughcolor=colors["input"],
                         background=colors["accent"], bordercolor=colors["input"],
                         lightcolor=colors["accent"], darkcolor=colors["accent"],
-                        thickness=8)
+                        thickness=6)
         style.configure("TScrollbar", background=colors["card_alt"],
-                        troughcolor=colors["card"], bordercolor=colors["card"])
+                        troughcolor=colors["card"], bordercolor=colors["card"],
+                        arrowcolor=colors["muted"])
 
     def build_ui(self) -> None:
-        self.root.minsize(760, 600)
-        header = ttk.Frame(self.root)
-        header.pack(fill="x", padx=32, pady=(28, 12))
-        ttk.Label(header, text="DressCoder", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
-            header, text=self.t("subtitle"),
-            style="Subtitle.TLabel",
-        ).pack(anchor="w", pady=(3, 0))
+        self.root.minsize(780, 760)
+        self.root.unbind_all("<MouseWheel>")  # avoid stacking handlers across rebuilds
+        colors = self.COLORS
 
-        form = ttk.Frame(self.root, style="Card.TFrame", padding=24)
-        form.pack(fill="x", padx=32, pady=(8, 12))
-        ttk.Label(form, text=self.t("project_setup"), style="Section.TLabel").grid(
-            row=0, column=0, columnspan=3, sticky="w", pady=(0, 16)
-        )
-        self.add_folder_row(form, self.t("source"), self.source, self.choose_source, 1)
-        self.add_folder_row(form, self.t("destination"), self.destination, self.choose_destination, 2)
-        ttk.Label(form, text=self.t("skin_name"), style="Card.TLabel").grid(
-            row=3, column=0, sticky="w", pady=7
-        )
-        ttk.Entry(form, textvariable=self.skin_name).grid(
-            row=3, column=1, columnspan=2, sticky="ew", padx=(16, 0)
-        )
-        form.columnconfigure(1, weight=1)
-        tools = ttk.Frame(form, style="Card.TFrame")
-        tools.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(20, 0))
-        ttk.Label(tools, textvariable=self.tool_status, style="CardMuted.TLabel").pack(side="left")
-        self.install_button = ttk.Button(
-            tools, text=self.t("install_patcher"), style="Secondary.TButton",
-            command=self.install_patcher,
-        )
-        self.install_button.pack(side="right", padx=(6, 0))
-        self.dependencies_button = ttk.Button(
-            tools, text=self.t("install_dependencies"), style="Secondary.TButton",
-            command=self.install_dependencies,
-        )
-        self.dependencies_button.pack(side="right")
-        self.start_button = ttk.Button(
-            form, text=self.t("start_conversion"), style="Accent.TButton", command=self.start,
-        )
-        self.start_button.grid(row=5, column=0, columnspan=3, sticky="e", pady=(24, 0))
-        ttk.Label(
-            self.root, text=self.t("workflow_description"),
-            style="Muted.TLabel",
-        ).pack(anchor="w", padx=32, pady=(0, 10))
-        status = ttk.Frame(self.root, style="Card.TFrame", padding=24)
-        status.pack(fill="x", padx=32, pady=(0, 24))
-        ttk.Label(status, text=self.t("workflow_progress"), style="Section.TLabel").pack(anchor="w")
-        ttk.Label(status, textvariable=self.step_text, style="CardMuted.TLabel").pack(
-            anchor="w", pady=(8, 4)
-        )
-        ttk.Progressbar(
-            status, variable=self.progress, maximum=len(self.workflow_steps),
-            mode="determinate", style="Modern.Horizontal.TProgressbar",
-        ).pack(fill="x", pady=(4, 14))
-        ttk.Button(
-            status, text=self.t("view_logs"), style="Secondary.TButton",
-            command=self.show_detailed_view,
-        ).pack(anchor="e")
-        language_bar = ttk.Frame(
-            self.root, style="Card.TFrame", padding=3,
-        )
-        language_bar.pack(anchor="e", padx=32, pady=(0, 20))
+        # --- Footer: language switcher (packed first so it always stays visible) --
+        footer = ttk.Frame(self.root)
+        footer.pack(fill="x", side="bottom", padx=36, pady=(8, 20))
+        ttk.Separator(footer, style="Divider.TSeparator").pack(fill="x", pady=(0, 14))
+        language_bar = ttk.Frame(footer, style="Pill.TFrame", padding=3)
+        language_bar.pack(anchor="e")
         for code, label in (("es", "ES"), ("en", "EN")):
             ttk.Button(
                 language_bar, text=label,
@@ -282,6 +332,145 @@ class Frontend:
                 ),
                 command=lambda selected=code: self.change_language(selected),
             ).pack(side="left")
+
+        # --- Scrollable content area -------------------------------------------
+        # Wrapped in a canvas so the window can shrink without hiding the footer;
+        # content scrolls instead of being clipped.
+        outer = ttk.Frame(self.root)
+        outer.pack(fill="both", expand=True, side="top")
+        canvas = tk.Canvas(outer, bg=colors["background"], highlightthickness=0, bd=0)
+        vscroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        content = ttk.Frame(canvas)
+        content_window = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def _on_content_configure(_event=None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event) -> None:
+            canvas.itemconfigure(content_window, width=event.width)
+
+        content.bind("<Configure>", _on_content_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+        canvas.configure(yscrollcommand=vscroll.set)
+
+        def _on_mousewheel(event) -> None:
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        canvas.pack(side="left", fill="both", expand=True)
+        vscroll.pack(side="right", fill="y")
+
+        header = ttk.Frame(content)
+        header.pack(fill="x", padx=36, pady=(32, 16))
+        ttk.Button(
+            header, text=self.t("help"), style="Secondary.TButton",
+            command=self.show_help,
+        ).pack(side="right", anchor="n")
+        ttk.Label(header, text="DressCoder", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(
+            header, text=self.t("subtitle"), style="Subtitle.TLabel",
+        ).pack(anchor="w", pady=(4, 0))
+
+        # --- Project setup card -------------------------------------------------
+        form = ttk.Frame(content, style="Card.TFrame", padding=(24, 20))
+        form.pack(fill="x", padx=36, pady=(0, 16))
+        ttk.Label(form, text=self.t("project_setup"), style="Section.TLabel").grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 14)
+        )
+        self.add_folder_row(form, self.t("source"), self.source, self.choose_source, 1)
+        ttk.Separator(form, style="Divider.TSeparator").grid(
+            row=2, column=0, columnspan=3, sticky="ew", pady=10
+        )
+        self.add_folder_row(form, self.t("destination"), self.destination, self.choose_destination, 3)
+        ttk.Separator(form, style="Divider.TSeparator").grid(
+            row=4, column=0, columnspan=3, sticky="ew", pady=10
+        )
+        ttk.Label(form, text=self.t("skin_name"), style="Card.TLabel").grid(
+            row=5, column=0, sticky="w", pady=7
+        )
+        ttk.Entry(form, textvariable=self.skin_name).grid(
+            row=5, column=1, columnspan=2, sticky="ew", padx=(16, 0)
+        )
+        ttk.Separator(form, style="Divider.TSeparator").grid(
+            row=6, column=0, columnspan=3, sticky="ew", pady=10
+        )
+        ttk.Label(form, text=self.t("author"), style="Card.TLabel").grid(
+            row=7, column=0, sticky="w", pady=7
+        )
+        ttk.Entry(form, textvariable=self.author).grid(
+            row=7, column=1, columnspan=2, sticky="ew", padx=(16, 0)
+        )
+        ttk.Label(form, text=self.t("description"), style="Card.TLabel").grid(
+            row=8, column=0, sticky="w", pady=7
+        )
+        ttk.Entry(form, textvariable=self.description).grid(
+            row=8, column=1, columnspan=2, sticky="ew", padx=(16, 0)
+        )
+        ttk.Label(form, text=self.t("photo"), style="Card.TLabel").grid(
+            row=9, column=0, sticky="w", pady=7
+        )
+        ttk.Entry(form, textvariable=self.photo, state="readonly").grid(
+            row=9, column=1, sticky="ew", padx=(16, 8)
+        )
+        photo_actions = ttk.Frame(form, style="Card.TFrame")
+        photo_actions.grid(row=9, column=2, sticky="e")
+        ttk.Button(
+            photo_actions, text=self.t("photo_browse"), style="Secondary.TButton",
+            command=self.choose_photo,
+        ).pack(side="left")
+        ttk.Button(
+            photo_actions, text=self.t("remove_photo"), style="Secondary.TButton",
+            command=self.clear_photo,
+        ).pack(side="left", padx=(8, 0))
+        form.columnconfigure(1, weight=1)
+
+        # --- Patcher status card -------------------------------------------------
+        tools = ttk.Frame(content, style="Card.TFrame", padding=(24, 16))
+        tools.pack(fill="x", padx=36, pady=(0, 16))
+        status_row = ttk.Frame(tools, style="Card.TFrame")
+        status_row.pack(fill="x")
+        self.status_dot = tk.Canvas(
+            status_row, width=10, height=10, bg=colors["card"],
+            highlightthickness=0, bd=0,
+        )
+        self.status_dot.pack(side="left", padx=(0, 10))
+        ttk.Label(status_row, textvariable=self.tool_status, style="CardMuted.TLabel").pack(
+            side="left"
+        )
+        self.install_button = ttk.Button(
+            status_row, text=self.t("install_patcher"), style="Secondary.TButton",
+            command=self.install_patcher,
+        )
+        self.install_button.pack(side="right", padx=(8, 0))
+        self.dependencies_button = ttk.Button(
+            status_row, text=self.t("install_dependencies"), style="Secondary.TButton",
+            command=self.install_dependencies,
+        )
+        self.dependencies_button.pack(side="right")
+
+        self.start_button = ttk.Button(
+            content, text=self.t("start_conversion"), style="Accent.TButton", command=self.start,
+        )
+        self.start_button.pack(anchor="e", padx=36, pady=(0, 6))
+        ttk.Label(
+            content, text=self.t("workflow_description"), style="Muted.TLabel",
+        ).pack(anchor="w", padx=36, pady=(4, 12))
+
+        # --- Progress card --------------------------------------------------------
+        status = ttk.Frame(content, style="Card.TFrame", padding=(24, 20))
+        status.pack(fill="x", padx=36, pady=(0, 16))
+        ttk.Label(status, text=self.t("workflow_progress"), style="Section.TLabel").pack(anchor="w")
+        ttk.Label(status, textvariable=self.step_text, style="CardMuted.TLabel").pack(
+            anchor="w", pady=(10, 6)
+        )
+        ttk.Progressbar(
+            status, variable=self.progress, maximum=len(self.workflow_steps),
+            mode="determinate", style="Modern.Horizontal.TProgressbar",
+        ).pack(fill="x", pady=(2, 14))
+        ttk.Button(
+            status, text=self.t("view_logs"), style="Secondary.TButton",
+            command=self.show_detailed_view,
+        ).pack(anchor="e", pady=(0, 8))
 
     def add_folder_row(self, parent: ttk.Frame, label: str, variable: tk.StringVar,
                        command: Callable[[], None], row: int) -> None:
@@ -306,12 +495,39 @@ class Frontend:
         if path:
             self.destination.set(path)
 
+    def choose_photo(self) -> None:
+        path = filedialog.askopenfilename(
+            title=self.t("select_photo"),
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg"),
+                ("PNG files", "*.png"),
+                ("JPEG files", "*.jpg *.jpeg"),
+                ("All files", "*.*"),
+            ],
+        )
+        if path:
+            self.photo.set(path)
+
+    def clear_photo(self) -> None:
+        self.photo.set("")
+
+    def show_help(self) -> None:
+        messagebox.showinfo(
+            self.t("help_title"),
+            self.t("help_message"),
+            parent=self.root,
+        )
+
     def refresh_tool_status(self) -> None:
         installed = patcher_ready()
         self.tool_status.set(
             f"Patcher {PATCHER_RELEASE}: "
             + (self.t("installed") if installed else self.t("not_installed"))
         )
+        if self.status_dot is not None and self.status_dot.winfo_exists():
+            self.status_dot.delete("all")
+            color = self.COLORS["success"] if installed else self.COLORS["danger"]
+            self.status_dot.create_oval(1, 1, 9, 9, fill=color, outline="")
         if hasattr(self, "install_button"):
             self.install_button.configure(state="disabled" if installed else "normal")
             self.dependencies_button.configure(state="normal" if installed else "disabled")
@@ -437,8 +653,15 @@ class Frontend:
         source = Path(self.source.get().strip())
         destination = Path(self.destination.get().strip())
         name = self.skin_name.get().strip() or source.name
+        author = self.author.get().strip()
+        description = self.description.get().strip()
+        photo_text = self.photo.get().strip()
+        photo = Path(photo_text) if photo_text else None
         if not source.is_dir() or not destination.is_dir() or not name:
             messagebox.showerror(self.t("input_required"), self.t("choose_folders"))
+            return
+        if photo is not None and not photo.is_file():
+            messagebox.showerror(self.t("input_required"), self.t("select_photo"))
             return
         if Path(name).name != name or name in (".", ".."):
             messagebox.showerror(self.t("invalid_name"), self.t("single_folder_name"))
@@ -473,11 +696,27 @@ class Frontend:
 
         def worker() -> None:
             try:
-                service.run(source, destination, name, target)
+                service.run(
+                    source, destination, name, target,
+                    author, description, photo,
+                )
                 self.root.after(0, self.progress.set, len(self.workflow_steps))
                 self.ui_call(lambda: messagebox.showinfo(
                     self.t("done"), self.t("conversion_completed"), parent=self.root
                 ))
+                if self.ui_call(lambda: messagebox.askyesno(
+                    self.t("open_folder_title"),
+                    self.t("open_folder_question"),
+                    parent=self.root,
+                )):
+                    try:
+                        os.startfile(str(target / "dresscode"))
+                    except OSError as exc:
+                        self.ui_call(lambda: messagebox.showerror(
+                            self.t("open_folder_failed"),
+                            str(exc),
+                            parent=self.root,
+                        ))
             except Exception as exc:
                 self.ui_call(lambda: messagebox.showerror(
                     self.t("process_failed"), str(exc), parent=self.root

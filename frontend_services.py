@@ -169,7 +169,10 @@ class WorkflowService:
         self.choose_variants = choose_variants
         self.confirm = confirm
 
-    def run(self, source: Path, destination: Path, name: str, target: Path) -> None:
+    def run(
+        self, source: Path, destination: Path, name: str, target: Path,
+        author: str = "", description: str = "", photo: Optional[Path] = None,
+    ) -> None:
         try:
             if target.exists():
                 shutil.rmtree(target)
@@ -201,7 +204,7 @@ class WorkflowService:
                 else:
                     self.step(4)
                 self.step(5)
-                self.write_metadata(target, name)
+                self.write_metadata(target, name, author, description, photo)
                 self.step(6)
                 self.convert_to_dresscode(target)
                 self.log("Finished successfully.")
@@ -285,7 +288,13 @@ class WorkflowService:
                 shutil.rmtree(staging, ignore_errors=True)
 
     @staticmethod
-    def write_metadata(target: Path, name: str) -> None:
+    def write_metadata(
+        target: Path, name: str, author: str = "", description: str = "",
+        photo: Optional[Path] = None,
+    ) -> None:
+        if photo is not None:
+            target_photo = target / ("icon" + photo.suffix.lower())
+            shutil.copy2(photo, target_photo)
         path = target / "dresscode.json"
         data = {}
         if path.is_file():
@@ -293,8 +302,8 @@ class WorkflowService:
                 data = json.load(stream)
         data.update({
             "name": name,
-            "author": data.get("author", ""),
-            "description": data.get("description", ""),
+            "author": author,
+            "description": description,
             "category": data.get("category", "Outfit"),
             "version": data.get("version", "1.0.0"),
             "stackable": data.get("stackable", False),
