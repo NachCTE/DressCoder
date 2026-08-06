@@ -123,3 +123,10 @@ env/
 **/parts out/
 **/.dresscoder-work-*/
 src/tools/*
+
+########################################
+# DressCoder packaged release artifacts
+########################################
+build/
+dist/
+*.spec

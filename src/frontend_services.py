@@ -19,7 +19,11 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parent
+)
 PATCHER = ROOT / "tools" / "patcher"
 PATCH = PATCHER / "patch.py"
 PARTS = PATCHER / "devtools" / "parts.py"
@@ -84,6 +88,15 @@ def patcher_dependencies_ready() -> bool:
     return importlib.util.find_spec("numpy") is not None
 
 
+def python_command() -> str:
+    if not getattr(sys, "frozen", False):
+        return sys.executable
+    command = shutil.which("python")
+    if command is None:
+        raise RuntimeError("Python was not found in PATH.")
+    return command
+
+
 def is_dresscode_folder(source: Path) -> bool:
     return any(source.rglob("*.uplugin"))
 
@@ -141,7 +154,7 @@ class PatcherService:
         if not requirements.is_file():
             raise RuntimeError(f"Could not find {requirements}.")
         command = [
-            sys.executable, "-m", "pip", "install",
+            python_command(), "-m", "pip", "install",
             "--disable-pip-version-check", "-r", str(requirements),
         ]
         self.log("$ " + subprocess.list2cmdline(command))
@@ -198,7 +211,7 @@ class BatchPatchService:
             try:
                 shutil.copytree(source, target)
                 inspect_command = [
-                    sys.executable, str(tool), "--path", str(target), "--list",
+                    python_command(), str(tool), "--path", str(target), "--list",
                 ]
                 self.log("$ " + subprocess.list2cmdline(inspect_command))
                 inspected = subprocess.run(
@@ -221,7 +234,7 @@ class BatchPatchService:
                     })
                     continue
                 command = [
-                    sys.executable, str(tool), "--path", str(target),
+                    python_command(), str(tool), "--path", str(target),
                     "--all", "--no-backup",
                 ]
                 self.log("$ " + subprocess.list2cmdline(command))
@@ -287,7 +300,7 @@ class WorkflowService:
                     shutil.copytree(source, target)
                 else:
                     listing_args = [
-                        sys.executable, str(PATCH), "--path", str(source),
+                        python_command(), str(PATCH), "--path", str(source),
                         "--list",
                     ]
                     listing = self.run_logged(listing_args)
@@ -301,7 +314,7 @@ class WorkflowService:
                     if needs_patch:
                         shutil.copytree(source, target)
                         patched = self.run_logged([
-                            sys.executable, str(PATCH), "--path", str(target),
+                            python_command(), str(PATCH), "--path", str(target),
                             "--all", "--no-backup",
                         ])
                         if patched.returncode != 0:
@@ -344,7 +357,7 @@ class WorkflowService:
 
     def make_variants(self, target: Path) -> None:
         self.step(4)
-        listed = self.run_logged([sys.executable, str(PARTS), str(target), "--list"])
+        listed = self.run_logged([python_command(), str(PARTS), str(target), "--list"])
         if listed.returncode != 0:
             raise RuntimeError(f"parts listing failed with exit code {listed.returncode}")
         parts = parse_parts(listed.stdout + listed.stderr)
@@ -368,7 +381,7 @@ class WorkflowService:
                     raise RuntimeError(f"refused to overwrite existing variant: {out}")
                 shutil.rmtree(out)
             self.run_logged([
-                sys.executable, str(PARTS), str(target), "--omit",
+                python_command(), str(PARTS), str(target), "--omit",
                 ",".join(map(str, omitted)) or "none", "--out", str(out),
             ])
 
@@ -380,7 +393,7 @@ class WorkflowService:
         try:
             shutil.move(str(target), str(staged_source))
             converted = self.run_logged([
-                sys.executable, str(CONVERT), str(staged_source), "--yes"
+                python_command(), str(CONVERT), str(staged_source), "--yes"
             ])
             if converted.returncode != 0:
                 raise RuntimeError(

@@ -15,6 +15,7 @@ from tkinter import filedialog, font as tkfont, messagebox, ttk
 
 from frontend_services import (
     PATCHER_RELEASE,
+    PATCHER,
     Part,
     PatcherService,
     BatchPatchService,
@@ -1280,7 +1281,7 @@ class Frontend:
         threading.Thread(target=worker, daemon=True).start()
 
     def open_manual_patcher_install(self) -> None:
-        patcher_directory = Path(__file__).resolve().parent / "tools" / "patcher"
+        patcher_directory = PATCHER
         try:
             patcher_directory.mkdir(parents=True, exist_ok=True)
             webbrowser.open(PATCHER_NEXUS_URL)
