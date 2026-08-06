@@ -39,15 +39,15 @@ python -m pip install -r requirements.txt
 Ejecuta la interfaz con:
 
 ```powershell
-python frontend.py
+python src\frontend.py
 ```
 
 El patcher oficial no se distribuye dentro de este repositorio. Puedes instalarlo de dos formas:
 
-- Usa **Auto install patcher** para descargar automáticamente la release oficial desde GitHub. DressCoder verifica su SHA-256 y la instala localmente en `tools\patcher`.
-- Usa **Install patcher (Nexus)** para abrir la página de archivos de Nexus y la carpeta local `tools\patcher`. Descarga y descomprime allí el patcher: <https://www.nexusmods.com/finalfantasy7rebirth/mods/2217?tab=files>
+- Usa **Auto install patcher** para descargar automáticamente la release oficial desde GitHub. DressCoder verifica su SHA-256 y la instala localmente en `src\tools\patcher`.
+- Usa **Install patcher (Nexus)** para abrir la página de archivos de Nexus y la carpeta local `src\tools\patcher`. Descarga y descomprime allí el patcher: <https://www.nexusmods.com/finalfantasy7rebirth/mods/2217?tab=files>
 
-Si `tools\patcher` no existe, DressCoder la crea automáticamente.
+Si `src\tools\patcher` no existe, DressCoder la crea automáticamente.
 
 ### Flujo de conversión
 
@@ -120,12 +120,12 @@ Copia los archivos generados por Dresscode, como `.pak`, `.ucas` y `.utoc`. No c
 
 ## Herramientas de línea de comandos
 
-Las herramientas del patcher se descargan durante la ejecución. Después de instalarlo desde DressCoder, estarán disponibles localmente en `tools\patcher`:
+Las herramientas del patcher se descargan durante la ejecución. Después de instalarlo desde DressCoder, estarán disponibles localmente en `src\tools\patcher`:
 
 ```powershell
-python tools\patcher\devtools\parts.py "C:\ruta\de\la\skin" --list
-python tools\patcher\devtools\parts.py "C:\ruta\de\la\skin" --omit 1,4 --out "C:\ruta\de\la\variante"
-python tools\patcher\convert.py "C:\ruta\de\la\skin" --yes
+python src\tools\patcher\devtools\parts.py "C:\ruta\de\la\skin" --list
+python src\tools\patcher\devtools\parts.py "C:\ruta\de\la\skin" --omit 1,4 --out "C:\ruta\de\la\variante"
+python src\tools\patcher\convert.py "C:\ruta\de\la\skin" --yes
 ```
 
 Para conocer todas las opciones, consulta el `README.md` que acompaña la instalación local del patcher o su repositorio oficial.
