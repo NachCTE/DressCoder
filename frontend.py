@@ -6,6 +6,7 @@ import json
 import os
 import threading
 import urllib.error
+import webbrowser
 import zipfile
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -19,9 +20,17 @@ from frontend_services import (
     BatchPatchService,
     WorkflowService,
     is_dresscode_folder,
+    patcher_dependencies_ready,
     patcher_ready,
 )
 from frontend_translations import UI_TEXT
+
+PATCHER_NEXUS_URL = (
+    "https://www.nexusmods.com/finalfantasy7rebirth/mods/2217?tab=files"
+)
+REVELANS_NEXUS_URL = "https://www.nexusmods.com/profile/Revelans"
+
+
 class VariantDialog:
     def __init__(self, parent: tk.Misc, parts: List[Part], language: str):
         self.language = language
@@ -127,7 +136,7 @@ class VariantDialog:
 class Frontend:
     PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
     CACHE_PATH = (
-        Path.home() / "AppData" / "Local" / "DressCoder" / "settings.json"
+            Path.home() / "AppData" / "Local" / "DressCoder" / "settings.json"
     )
     # Windows 11 dark-mode neutral palette (Mica-inspired surfaces + system accent).
     COLORS = {
@@ -150,7 +159,7 @@ class Frontend:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("DressCoder")
-        self.root.geometry("900x1000")
+        self.root.geometry("900x1055")
         self.language = tk.StringVar(value="es")
         self.source = tk.StringVar()
         self.destination = tk.StringVar()
@@ -173,6 +182,7 @@ class Frontend:
         self.detail_log = None
         self.status_dot = None
         self.scroll_update_after = None
+        self.batch_scroll_update_after = None
         self.load_cache()
         self.configure_theme()
         self.step_text.set(self.t("ready"))
@@ -438,7 +448,8 @@ class Frontend:
                         thickness=6)
         style.configure("TScrollbar", background=colors["card_alt"],
                         troughcolor=colors["card"], bordercolor=colors["card"],
-                        arrowcolor=colors["muted"])
+                        arrowcolor=colors["muted"], lightcolor=colors["card"],
+                        darkcolor=colors["card"], relief="flat", borderwidth=0)
 
     def build_ui(self) -> None:
         self.root.minsize(780, 760)
@@ -449,8 +460,19 @@ class Frontend:
         footer = ttk.Frame(self.root)
         footer.pack(fill="x", side="bottom", padx=36, pady=(8, 20))
         ttk.Separator(footer, style="Divider.TSeparator").pack(fill="x", pady=(0, 14))
+        credit_font = tkfont.Font(
+            self.root, family=self.fonts["small"].actual("family"),
+            size=self.fonts["small"].actual("size"), underline=True,
+        )
+        credit = tk.Label(
+            footer, text=self.t("patcher_credit"), bg=colors["background"],
+            fg=colors["accent"], activeforeground=colors["accent_hover"],
+            cursor="hand2", font=credit_font, borderwidth=0,
+        )
+        credit.pack(side="left")
+        credit.bind("<Button-1>", lambda _event: self.open_revelans_profile())
         language_bar = ttk.Frame(footer, style="Pill.TFrame", padding=3)
-        language_bar.pack(anchor="e")
+        language_bar.pack(side="right")
         for code, label in (("es", "ES"), ("en", "EN")):
             ttk.Button(
                 language_bar, text=label,
@@ -467,6 +489,7 @@ class Frontend:
         outer = ttk.Frame(self.root)
         outer.pack(fill="both", expand=True, side="top")
         notebook = ttk.Notebook(outer)
+        self.notebook = notebook
         main_tab = ttk.Frame(notebook)
         patch_tab = ttk.Frame(notebook)
         notebook.add(main_tab, text=self.t("tab_convert"))
@@ -494,8 +517,11 @@ class Frontend:
         canvas.configure(yscrollcommand=vscroll.set)
 
         def _on_mousewheel(event) -> None:
+            if notebook.select() != str(main_tab):
+                return
             if content.winfo_reqheight() > canvas.winfo_height():
                 canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                return "break"
 
         def _update_scrollbar(_event=None) -> None:
             canvas.update_idletasks()
@@ -526,6 +552,7 @@ class Frontend:
         # --- Project setup card -------------------------------------------------
         form = ttk.Frame(content, style="Card.TFrame", padding=(24, 20))
         form.pack(fill="x", padx=36, pady=(0, 16))
+        self.folder_label_widgets = []
         ttk.Label(form, text=self.t("project_setup"), style="Section.TLabel").grid(
             row=0, column=0, columnspan=3, sticky="w", pady=(0, 14)
         )
@@ -589,16 +616,21 @@ class Frontend:
         ttk.Label(status_row, textvariable=self.tool_status, style="CardMuted.TLabel").pack(
             side="left"
         )
-        self.install_button = ttk.Button(
-            status_row, text=self.t("install_patcher"), style="Secondary.TButton",
-            command=self.install_patcher,
-        )
-        self.install_button.pack(side="right", padx=(8, 0))
         self.dependencies_button = ttk.Button(
             status_row, text=self.t("install_dependencies"), style="Secondary.TButton",
             command=self.install_dependencies,
         )
-        self.dependencies_button.pack(side="right")
+        self.dependencies_button.pack(side="right", padx=4)
+        self.manual_install_button = ttk.Button(
+            status_row, text=self.t("manual_install_patcher"), style="Secondary.TButton",
+            command=self.open_manual_patcher_install,
+        )
+        self.manual_install_button.pack(side="right", padx=4)
+        self.install_button = ttk.Button(
+            status_row, text=self.t("auto_install_patcher"), style="Secondary.TButton",
+            command=self.install_patcher,
+        )
+        self.install_button.pack(side="right", padx=4)
 
         conversion_actions = ttk.Frame(content)
         conversion_actions.pack(fill="x", padx=36, pady=(0, 6))
@@ -633,8 +665,47 @@ class Frontend:
         self.build_batch_tab(patch_tab)
 
     def build_batch_tab(self, parent: ttk.Frame) -> None:
-        wrapper = ttk.Frame(parent)
-        wrapper.pack(fill="both", expand=True, padx=36, pady=28)
+        canvas = tk.Canvas(parent, bg=self.COLORS["background"],
+                           highlightthickness=0, bd=0)
+        vscroll = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        wrapper = ttk.Frame(canvas, padding=(36, 28))
+        content_window = canvas.create_window((0, 0), window=wrapper, anchor="nw")
+
+        def _on_content_configure(_event=None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event) -> None:
+            canvas.itemconfigure(
+                content_window,
+                width=event.width,
+                height=max(event.height, wrapper.winfo_reqheight()),
+            )
+
+        def _on_mousewheel(event) -> None:
+            if self.notebook.select() != str(parent):
+                return
+            if wrapper.winfo_reqheight() > canvas.winfo_height():
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                return "break"
+
+        def _update_scrollbar(_event=None) -> None:
+            canvas.update_idletasks()
+            if wrapper.winfo_reqheight() > canvas.winfo_height():
+                if not vscroll.winfo_ismapped():
+                    vscroll.pack(side="right", fill="y")
+            elif vscroll.winfo_ismapped():
+                vscroll.pack_forget()
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        wrapper.bind("<Configure>", _on_content_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+        canvas.bind_all("<MouseWheel>", _on_mousewheel, add="+")
+        wrapper.bind("<Configure>", _update_scrollbar, add="+")
+        canvas.bind("<Configure>", _update_scrollbar, add="+")
+        canvas.configure(yscrollcommand=vscroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        self.batch_scroll_update_after = self.root.after_idle(_update_scrollbar)
+
         header = ttk.Frame(wrapper)
         header.pack(fill="x", pady=(0, 16))
         ttk.Label(header, text=self.t("patch_tab_title"),
@@ -672,12 +743,12 @@ class Frontend:
         ttk.Button(
             source_row, text=self.t("remove_folder"), style="Secondary.TButton",
             command=self.remove_batch_source,
-        ).pack(side="left", padx=(8, 0))
+        ).pack(side="right", padx=(8, 0))
         self.clear_batch_button = ttk.Button(
             source_row, text=self.t("clear_folders"), style="Secondary.TButton",
             command=self.clear_batch_sources,
         )
-        self.clear_batch_button.pack(side="left", padx=(8, 0))
+        self.clear_batch_button.pack(side="right")
         self.batch_source_list = tk.Listbox(
             sources_card, height=7, selectmode="extended",
             bg="#171717", fg=self.COLORS["text"],
@@ -703,23 +774,30 @@ class Frontend:
         destination_card.columnconfigure(0, weight=1)
 
         action_row = ttk.Frame(wrapper)
-        action_row.pack(fill="x")
+        action_row.pack(fill="x", pady=(0, 16))
         self.batch_start_button = ttk.Button(
             action_row, text=self.t("start_patch"), style="Accent.TButton",
             command=self.start_batch_patch,
         )
         self.batch_start_button.pack(side="right")
-        ttk.Button(
-            action_row, text=self.t("view_logs"), style="Secondary.TButton",
-            command=self.show_detailed_view,
-        ).pack(side="right", padx=(0, 8))
-        ttk.Label(action_row, textvariable=self.batch_step_text,
-                  style="Muted.TLabel").pack(side="left")
+        batch_status = ttk.Frame(wrapper, style="Card.TFrame", padding=(24, 20))
+        batch_status.pack(fill="x", pady=(0, 16))
+        ttk.Label(
+            batch_status, text=self.t("workflow_progress"), style="Section.TLabel"
+        ).pack(anchor="w")
+        ttk.Label(
+            batch_status, textvariable=self.batch_step_text,
+            style="CardMuted.TLabel",
+        ).pack(anchor="w", pady=(10, 6))
         self.batch_progress_bar = ttk.Progressbar(
-            wrapper, variable=self.batch_progress, maximum=1,
+            batch_status, variable=self.batch_progress, maximum=1,
             mode="determinate", style="Modern.Horizontal.TProgressbar",
         )
-        self.batch_progress_bar.pack(fill="x", pady=(12, 0))
+        self.batch_progress_bar.pack(fill="x", pady=(2, 14))
+        ttk.Button(
+            batch_status, text=self.t("view_logs"), style="Secondary.TButton",
+            command=self.show_detailed_view,
+        ).pack(anchor="e")
 
     def add_batch_source(self) -> None:
         path = filedialog.askdirectory(title=self.t("select_patch_source"))
@@ -802,9 +880,9 @@ class Frontend:
             if (destination / source.name).exists()
         ]
         if existing and not messagebox.askyesno(
-            self.t("destination_exists"),
-            self.t("replace_patch_destinations", count=len(existing)),
-            parent=self.root,
+                self.t("destination_exists"),
+                self.t("replace_patch_destinations", count=len(existing)),
+                parent=self.root,
         ):
             return
         self.batch_progress.set(0)
@@ -822,9 +900,9 @@ class Frontend:
                 self.ui_call(lambda: self.show_batch_summary(results))
                 patched_any = any(item["status"] == "patched" for item in results)
                 if patched_any and self.ui_call(lambda: messagebox.askyesno(
-                    self.t("open_folder_title"),
-                    self.t("open_destination_question"),
-                    parent=self.root,
+                        self.t("open_folder_title"),
+                        self.t("open_destination_question"),
+                        parent=self.root,
                 )):
                     os.startfile(str(destination))
             except Exception as exc:
@@ -843,14 +921,25 @@ class Frontend:
 
     def add_folder_row(self, parent: ttk.Frame, label: str, variable: tk.StringVar,
                        command: Callable[[], None], row: int) -> None:
-        ttk.Label(parent, text=label, style="Card.TLabel").grid(
-            row=row, column=0, sticky="w", pady=7
+        row_frame = ttk.Frame(parent, style="Card.TFrame")
+        row_frame.grid(row=row, column=0, columnspan=3, sticky="ew", pady=7)
+        label_widget = ttk.Label(
+            row_frame, text=label, anchor="w", style="Card.TLabel"
         )
-        ttk.Entry(parent, textvariable=variable).grid(
-            row=row, column=1, sticky="ew", padx=(16, 8)
+        label_widget.pack(side="left")
+        self.folder_label_widgets.append(label_widget)
+        label_width = max(len(item.cget("text")) for item in self.folder_label_widgets)
+        for widget in self.folder_label_widgets:
+            widget.configure(width=label_width)
+        actions = ttk.Frame(row_frame, style="Card.TFrame")
+        actions.pack(side="right", padx=(8, 0))
+        ttk.Button(
+            actions, text=self.t("browse"), style="Secondary.TButton",
+            command=command,
+        ).pack(side="left")
+        ttk.Entry(row_frame, textvariable=variable).pack(
+            side="left", fill="x", expand=True, padx=(16, 0)
         )
-        ttk.Button(parent, text=self.t("browse"), style="Secondary.TButton",
-                   command=command).grid(row=row, column=2)
 
     def choose_source(self) -> None:
         path = filedialog.askdirectory(title=self.t("select_source"))
@@ -875,8 +964,8 @@ class Frontend:
             selected = Path(path)
             try:
                 is_png = (
-                    selected.suffix.lower() == ".png"
-                    and selected.read_bytes()[:8] == self.PNG_SIGNATURE
+                        selected.suffix.lower() == ".png"
+                        and selected.read_bytes()[:8] == self.PNG_SIGNATURE
                 )
             except OSError as exc:
                 messagebox.showerror(
@@ -901,6 +990,9 @@ class Frontend:
             parent=self.root,
         )
 
+    def open_revelans_profile(self) -> None:
+        webbrowser.open(REVELANS_NEXUS_URL)
+
     def refresh_tool_status(self) -> None:
         installed = patcher_ready()
         self.tool_status.set(
@@ -913,7 +1005,14 @@ class Frontend:
             self.status_dot.create_oval(1, 1, 9, 9, fill=color, outline="")
         if hasattr(self, "install_button"):
             self.install_button.configure(state="disabled" if installed else "normal")
-            self.dependencies_button.configure(state="normal" if installed else "disabled")
+            self.manual_install_button.configure(state="disabled" if installed else "normal")
+            self.dependencies_button.configure(
+                state=(
+                    "normal"
+                    if installed and not patcher_dependencies_ready()
+                    else "disabled"
+                )
+            )
             self.start_button.configure(state="normal" if installed else "disabled")
         if hasattr(self, "batch_start_button"):
             self.batch_start_button.configure(state="normal" if installed else "disabled")
@@ -995,6 +1094,12 @@ class Frontend:
             except tk.TclError:
                 pass
             self.scroll_update_after = None
+        if self.batch_scroll_update_after is not None:
+            try:
+                self.root.after_cancel(self.batch_scroll_update_after)
+            except tk.TclError:
+                pass
+            self.batch_scroll_update_after = None
         for child in self.root.winfo_children():
             child.destroy()
         self.build_ui()
@@ -1025,14 +1130,25 @@ class Frontend:
         return result[0] if result else None
 
     def set_busy(self, busy: bool) -> None:
-        state = "disabled" if busy else "normal"
-        self.install_button.configure(state=state)
-        self.dependencies_button.configure(state=state if busy else (
-            "normal" if patcher_ready() else "disabled"
-        ))
-        self.start_button.configure(state=state if busy else (
-            "normal" if patcher_ready() else "disabled"
-        ))
+        if busy:
+            self.install_button.configure(state="disabled")
+            self.manual_install_button.configure(state="disabled")
+            self.dependencies_button.configure(state="disabled")
+            self.start_button.configure(state="disabled")
+            return
+        installed = patcher_ready()
+        self.install_button.configure(state="disabled" if installed else "normal")
+        self.manual_install_button.configure(
+            state="disabled" if installed else "normal"
+        )
+        self.dependencies_button.configure(
+            state=(
+                "normal"
+                if installed and not patcher_dependencies_ready()
+                else "disabled"
+            )
+        )
+        self.start_button.configure(state="normal" if installed else "disabled")
 
     def start(self) -> None:
         if not patcher_ready():
@@ -1063,8 +1179,8 @@ class Frontend:
         if photo is not None:
             try:
                 is_png = (
-                    photo.suffix.lower() == ".png"
-                    and photo.read_bytes()[:8] == self.PNG_SIGNATURE
+                        photo.suffix.lower() == ".png"
+                        and photo.read_bytes()[:8] == self.PNG_SIGNATURE
                 )
             except OSError as exc:
                 messagebox.showerror(
@@ -1093,8 +1209,8 @@ class Frontend:
             )
             return
         if target.exists() and not messagebox.askyesno(
-            self.t("destination_exists"),
-            self.t("replace_destination", target=target), parent=self.root
+                self.t("destination_exists"),
+                self.t("replace_destination", target=target), parent=self.root
         ):
             return
         self.set_busy(True)
@@ -1119,9 +1235,9 @@ class Frontend:
                     self.t("done"), self.t("conversion_completed"), parent=self.root
                 ))
                 if self.ui_call(lambda: messagebox.askyesno(
-                    self.t("open_folder_title"),
-                    self.t("open_folder_question"),
-                    parent=self.root,
+                        self.t("open_folder_title"),
+                        self.t("open_folder_question"),
+                        parent=self.root,
                 )):
                     try:
                         os.startfile(str(target / "dresscode"))
@@ -1163,10 +1279,22 @@ class Frontend:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def open_manual_patcher_install(self) -> None:
+        patcher_directory = Path(__file__).resolve().parent / "tools" / "patcher"
+        try:
+            patcher_directory.mkdir(parents=True, exist_ok=True)
+            webbrowser.open(PATCHER_NEXUS_URL)
+            os.startfile(str(patcher_directory))
+        except OSError as exc:
+            self.ui_log("ERROR: could not open manual patcher installation: " + str(exc))
+            messagebox.showerror(
+                self.t("manual_install_failed"), str(exc), parent=self.root
+            )
+
     def install_dependencies(self) -> None:
         if not patcher_ready():
             messagebox.showerror(
-            self.t("patcher_missing"), self.t("dependencies_missing"),
+                self.t("patcher_missing"), self.t("dependencies_missing"),
                 parent=self.root,
             )
             return

@@ -42,7 +42,12 @@ Ejecuta la interfaz con:
 python frontend.py
 ```
 
-El patcher oficial no se distribuye dentro de este repositorio. Cuando sea necesario, DressCoder lo descarga automáticamente desde su release oficial de GitHub, verifica su SHA-256 y lo instala localmente en `tools\patcher`.
+El patcher oficial no se distribuye dentro de este repositorio. Puedes instalarlo de dos formas:
+
+- Usa **Auto install patcher** para descargar automáticamente la release oficial desde GitHub. DressCoder verifica su SHA-256 y la instala localmente en `tools\patcher`.
+- Usa **Install patcher (Nexus)** para abrir la página de archivos de Nexus y la carpeta local `tools\patcher`. Descarga y descomprime allí el patcher: <https://www.nexusmods.com/finalfantasy7rebirth/mods/2217?tab=files>
+
+Si `tools\patcher` no existe, DressCoder la crea automáticamente.
 
 ### Flujo de conversión
 

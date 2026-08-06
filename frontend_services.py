@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import re
 import shutil
@@ -77,6 +78,10 @@ def safe_extract(zip_path: Path, destination: Path) -> None:
 
 def patcher_ready() -> bool:
     return PATCH.exists() and PARTS.exists() and CONVERT.exists() and UNPATCH.exists()
+
+
+def patcher_dependencies_ready() -> bool:
+    return importlib.util.find_spec("numpy") is not None
 
 
 def is_dresscode_folder(source: Path) -> bool:
