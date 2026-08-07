@@ -42,6 +42,10 @@ VariantCallback = Callable[
     [List["Part"]], Optional[List[Tuple[str, List[int]]]]
 ]
 ConfirmCallback = Callable[[str, str], bool]
+IMAGE_EXTENSIONS = (
+    ".bmp", ".gif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp",
+)
+MAX_IMAGE_SIZE = (520, 520)
 
 
 @dataclass
@@ -99,6 +103,16 @@ def python_command() -> str:
 
 def is_dresscode_folder(source: Path) -> bool:
     return any(source.rglob("*.uplugin"))
+
+
+def validate_image(path: Path) -> None:
+    """Ensure the selected file is a readable image supported by Pillow."""
+    try:
+        from PIL import Image
+        with Image.open(path) as image:
+            image.verify()
+    except (ImportError, OSError, SyntaxError, ValueError) as exc:
+        raise RuntimeError(f"could not read image {path}: {exc}") from exc
 
 
 class PatcherService:
@@ -424,9 +438,26 @@ class WorkflowService:
         target: Path, name: str, author: str = "", description: str = "",
         photo: Optional[Path] = None,
     ) -> None:
+        for item in target.iterdir():
+            if item.is_file() and item.suffix.casefold() in IMAGE_EXTENSIONS:
+                item.unlink()
         if photo is not None:
-            target_photo = target / ("icon" + photo.suffix.lower())
-            shutil.copy2(photo, target_photo)
+            validate_image(photo)
+            try:
+                from PIL import Image
+                with Image.open(photo) as image:
+                    image.load()
+                    converted = image.convert("RGBA")
+                    if converted.width > MAX_IMAGE_SIZE[0] \
+                            or converted.height > MAX_IMAGE_SIZE[1]:
+                        converted.thumbnail(
+                            MAX_IMAGE_SIZE, Image.Resampling.LANCZOS
+                        )
+                    converted.save(target / "icon.png", "PNG", optimize=True)
+            except (ImportError, OSError, SyntaxError, ValueError) as exc:
+                raise RuntimeError(
+                    f"could not convert image {photo} to PNG: {exc}"
+                ) from exc
         path = target / "dresscode.json"
         data = {}
         if path.is_file():

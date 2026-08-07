@@ -23,6 +23,7 @@ from frontend_services import (
     is_dresscode_folder,
     patcher_dependencies_ready,
     patcher_ready,
+    validate_image,
 )
 from frontend_translations import UI_TEXT
 
@@ -958,25 +959,17 @@ class Frontend:
         path = filedialog.askopenfilename(
             title=self.t("select_photo"),
             filetypes=[
-                ("PNG files", "*.png"),
+                ("Image files", "*.png *.jpg *.jpeg *.webp *.bmp *.gif *.tif *.tiff"),
+                ("All files", "*.*"),
             ],
         )
         if path:
             selected = Path(path)
             try:
-                is_png = (
-                        selected.suffix.lower() == ".png"
-                        and selected.read_bytes()[:8] == self.PNG_SIGNATURE
-                )
-            except OSError as exc:
+                validate_image(selected)
+            except RuntimeError as exc:
                 messagebox.showerror(
                     self.t("invalid_photo"), str(exc), parent=self.root
-                )
-                return
-            if not is_png:
-                messagebox.showerror(
-                    self.t("invalid_photo"), self.t("png_required"),
-                    parent=self.root,
                 )
                 return
             self.photo.set(path)
@@ -1179,19 +1172,10 @@ class Frontend:
             return
         if photo is not None:
             try:
-                is_png = (
-                        photo.suffix.lower() == ".png"
-                        and photo.read_bytes()[:8] == self.PNG_SIGNATURE
-                )
-            except OSError as exc:
+                validate_image(photo)
+            except RuntimeError as exc:
                 messagebox.showerror(
                     self.t("invalid_photo"), str(exc), parent=self.root
-                )
-                return
-            if not is_png:
-                messagebox.showerror(
-                    self.t("invalid_photo"), self.t("png_required"),
-                    parent=self.root,
                 )
                 return
         if Path(name).name != name or name in (".", ".."):
