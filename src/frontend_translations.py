@@ -16,6 +16,24 @@ UI_TEXT = {
         "subtitle": "Build polished Dresscode mods from your custom skins.",
         "tab_convert": "Dresscode conversion",
         "tab_patch": "Batch patcher",
+        "tab_pak": "Dresscode to PAK",
+        "pak_tab_title": "Convert Dresscode to PAK",
+        "pak_tab_description": "Convert a Dresscode mod into loose PAK files for the game's ~mods folder.",
+        "pak_source": "Dresscode mod folder",
+        "pak_source_hint": "Select the folder containing the .uplugin. The original is preserved and the PAK output is created beside it.",
+        "select_dresscode_source": "Select a Dresscode mod folder",
+        "pak_destination": "PAK destination folder",
+        "select_pak_destination": "Select the PAK destination folder",
+        "choose_pak_inputs": "Select a valid Dresscode source folder and an existing destination folder.",
+        "pak_destination_inside_source": "The PAK destination cannot be the source folder or a folder inside it.",
+        "choose_dresscode_source": "Select an existing Dresscode folder containing a .uplugin.",
+        "invalid_dresscode_source": "Invalid Dresscode folder",
+        "start_pak_conversion": "Convert to PAK",
+        "pak_progress": "Conversion progress",
+        "pak_starting": "Converting Dresscode mod...",
+        "replace_pak_destination": "{target} already exists. Replace it?",
+        "pak_conversion_completed": "PAK conversion completed. Output: {target}",
+        "open_pak_question": "Would you like to open the generated PAK folder?",
         "patch_tab_title": "Patch skins",
         "patch_tab_description": "Update skins from V1.004 to V1.005, or reverse them for V1.004. Process multiple folders into one destination root.",
         "patch_direction": "Patch direction",
@@ -49,7 +67,8 @@ UI_TEXT = {
             "2. Enter the skin metadata. Author, description, and photo are optional.\n"
             "3. Click Start conversion and choose whether to create variants.\n"
             "4. To only patch skins, use the Batch patcher tab and choose one or more folders.\n"
-            "5. When it finishes, open:\n"
+            "5. To convert an existing Dresscode mod to loose PAK files, use the Dresscode to PAK tab.\n"
+            "6. When it finishes, open:\n"
             "   destination\\skin_name\\dresscode\n\n"
             "Copy the contents of that dresscode folder, including the generated "
             ".pak, .ucas, and .utoc files, into the game's Mods folder.\n"
@@ -136,6 +155,24 @@ UI_TEXT = {
         "subtitle": "Crea mods Dresscode a partir de tus skins personalizadas.",
         "tab_convert": "Conversión Dresscode",
         "tab_patch": "Parchar skins",
+        "tab_pak": "Dresscode a PAK",
+        "pak_tab_title": "Convertir Dresscode a PAK",
+        "pak_tab_description": "Convierte un mod Dresscode en archivos PAK sueltos para la carpeta ~mods del juego.",
+        "pak_source": "Carpeta del mod Dresscode",
+        "pak_source_hint": "Selecciona la carpeta que contiene el .uplugin. El original se conserva y la salida PAK se crea junto a él.",
+        "select_dresscode_source": "Selecciona una carpeta de mod Dresscode",
+        "pak_destination": "Carpeta de destino del PAK",
+        "select_pak_destination": "Selecciona la carpeta de destino del PAK",
+        "choose_pak_inputs": "Selecciona una carpeta Dresscode de origen válida y una carpeta de destino existente.",
+        "pak_destination_inside_source": "La carpeta de destino del PAK no puede ser la carpeta de origen ni estar dentro de ella.",
+        "choose_dresscode_source": "Selecciona una carpeta Dresscode existente que contenga un .uplugin.",
+        "invalid_dresscode_source": "Carpeta Dresscode inválida",
+        "start_pak_conversion": "Convertir a PAK",
+        "pak_progress": "Progreso de la conversión",
+        "pak_starting": "Convirtiendo el mod Dresscode...",
+        "replace_pak_destination": "{target} ya existe. ¿Quieres reemplazarlo?",
+        "pak_conversion_completed": "La conversión a PAK finalizó. Salida: {target}",
+        "open_pak_question": "¿Quieres abrir la carpeta PAK generada?",
         "patch_tab_title": "Parchar skins",
         "patch_tab_description": "Actualiza skins de V1.004 a V1.005 o revierte el proceso para V1.004. Puedes procesar varias carpetas en una misma raíz de destino.",
         "patch_direction": "Dirección del parche",
@@ -169,7 +206,8 @@ UI_TEXT = {
             "2. Completa los metadatos. Autor, descripción y foto son opcionales.\n"
             "3. Pulsa Iniciar conversión y decide si quieres crear variantes.\n"
             "4. Para solo parchear skins, usa la pestaña Parchar skins y agrega una o más carpetas.\n"
-            "5. Al finalizar, abre:\n"
+            "5. Para convertir un mod Dresscode existente a archivos PAK, usa la pestaña Dresscode a PAK.\n"
+            "6. Al finalizar, abre:\n"
             "   destino\\nombre_skin\\dresscode\n\n"
             "Copia el contenido de esa carpeta dresscode, incluidos los archivos "
             ".pak, .ucas y .utoc generados, dentro de la carpeta Mods del juego.\n"
