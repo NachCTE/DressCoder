@@ -105,6 +105,14 @@ def is_dresscode_folder(source: Path) -> bool:
     return any(source.rglob("*.uplugin"))
 
 
+def dresscode_pak_output(source: Path) -> Path:
+    plugins = sorted(source.rglob("*.uplugin"))
+    if not plugins:
+        raise RuntimeError("the selected folder is not a Dresscode mod")
+    plugin_root = plugins[0].parent
+    return plugin_root.parent / f"{plugin_root.name} (pak)"
+
+
 def validate_image(path: Path) -> None:
     """Ensure the selected file is a readable image supported by Pillow."""
     try:
@@ -274,6 +282,61 @@ class BatchPatchService:
                     "name": batch_output_name, "status": "failed", "reason": str(exc),
                 })
         return results
+
+
+class DresscodePakService:
+    """Converts one Dresscode mod into loose PAK files."""
+
+    def __init__(self, log: LogCallback):
+        self.log = log
+
+    def run(self, source: Path, destination: Path) -> Path:
+        source = source.resolve()
+        destination = destination.resolve()
+        if not source.is_dir():
+            raise RuntimeError(f"Dresscode folder does not exist: {source}")
+        if not destination.is_dir():
+            raise RuntimeError(f"destination folder does not exist: {destination}")
+        if not is_dresscode_folder(source):
+            raise RuntimeError("the selected folder is not a Dresscode mod")
+        if destination == source or source in destination.parents:
+            raise RuntimeError("the destination folder cannot be inside the source folder")
+        output_name = dresscode_pak_output(source).name
+        output = destination / output_name
+        staging = Path(tempfile.mkdtemp(prefix=".dresscoder-pak-"))
+        staged_source = staging / source.name
+        try:
+            shutil.copytree(source, staged_source)
+            staged_output = dresscode_pak_output(staged_source)
+            if output.exists():
+                shutil.rmtree(output)
+            completed = self.run_logged([
+                python_command(), str(CONVERT), str(staged_source), "--yes",
+            ])
+            if completed.returncode != 0:
+                raise RuntimeError(
+                    f"converter failed with exit code {completed.returncode}"
+                )
+            if not staged_output.is_dir():
+                raise RuntimeError(
+                    f"converter did not create the expected folder: {staged_output}"
+                )
+            shutil.move(str(staged_output), str(output))
+            return output
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+
+    def run_logged(self, args: List[str]) -> subprocess.CompletedProcess:
+        self.log("$ " + subprocess.list2cmdline(args))
+        completed = subprocess.run(
+            args, cwd=PATCHER, text=True, encoding="utf-8",
+            errors="replace", capture_output=True, check=False,
+        )
+        output = (completed.stdout + completed.stderr).strip()
+        if output:
+            self.log(output)
+        return completed
 
 
 class WorkflowService:

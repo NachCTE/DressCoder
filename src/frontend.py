@@ -19,7 +19,9 @@ from frontend_services import (
     Part,
     PatcherService,
     BatchPatchService,
+    DresscodePakService,
     WorkflowService,
+    dresscode_pak_output,
     is_dresscode_folder,
     patcher_dependencies_ready,
     patcher_ready,
@@ -173,6 +175,10 @@ class Frontend:
         self.batch_destination = tk.StringVar()
         self.batch_mode = tk.StringVar(value="forward")
         self.batch_sources = []
+        self.dresscode_source = tk.StringVar()
+        self.pak_destination = tk.StringVar()
+        self.pak_step_text = tk.StringVar()
+        self.pak_busy = False
         self.batch_step_text = tk.StringVar()
         self.batch_progress = tk.DoubleVar(value=0)
         self.tool_status = tk.StringVar()
@@ -212,6 +218,8 @@ class Frontend:
             "photo": self.photo,
             "skip_patch": self.skip_patch,
             "batch_destination": self.batch_destination,
+            "dresscode_source": self.dresscode_source,
+            "pak_destination": self.pak_destination,
         }
         for key, variable in values.items():
             value = data.get(key)
@@ -243,6 +251,8 @@ class Frontend:
             "photo": self.photo.get(),
             "skip_patch": self.skip_patch.get(),
             "batch_destination": self.batch_destination.get(),
+            "dresscode_source": self.dresscode_source.get(),
+            "pak_destination": self.pak_destination.get(),
             "batch_mode": self.batch_mode.get(),
             "batch_sources": [str(path) for path in self.batch_sources],
         }
@@ -494,14 +504,19 @@ class Frontend:
         self.notebook = notebook
         main_tab = ttk.Frame(notebook)
         patch_tab = ttk.Frame(notebook)
+        pak_tab = ttk.Frame(notebook)
         notebook.add(main_tab, text=self.t("tab_convert"))
         notebook.add(patch_tab, text=self.t("tab_patch"))
+        notebook.add(pak_tab, text=self.t("tab_pak"))
         notebook.pack(fill="both", expand=True)
         tk.Frame(
             main_tab, height=1, bg="#171717", bd=0, highlightthickness=0
         ).pack(fill="x", side="top")
         tk.Frame(
             patch_tab, height=1, bg="#171717", bd=0, highlightthickness=0
+        ).pack(fill="x", side="top")
+        tk.Frame(
+            pak_tab, height=1, bg="#171717", bd=0, highlightthickness=0
         ).pack(fill="x", side="top")
         canvas = tk.Canvas(main_tab, bg=colors["background"], highlightthickness=0, bd=0)
         vscroll = ttk.Scrollbar(main_tab, orient="vertical", command=canvas.yview)
@@ -665,6 +680,68 @@ class Frontend:
             command=self.show_detailed_view,
         ).pack(anchor="e", pady=(0, 8))
         self.build_batch_tab(patch_tab)
+        self.build_pak_tab(pak_tab)
+
+    def build_pak_tab(self, parent: ttk.Frame) -> None:
+        wrapper = ttk.Frame(parent, padding=(36, 28))
+        wrapper.pack(fill="both", expand=True)
+
+        header = ttk.Frame(wrapper)
+        header.pack(fill="x", pady=(0, 16))
+        ttk.Label(header, text=self.t("pak_tab_title"),
+                  style="Title.TLabel").pack(anchor="w")
+        ttk.Label(header, text=self.t("pak_tab_description"),
+                  style="Subtitle.TLabel", wraplength=760).pack(anchor="w", pady=(4, 0))
+
+        source_card = ttk.Frame(wrapper, style="Card.TFrame", padding=(24, 20))
+        source_card.pack(fill="x", pady=(0, 16))
+        ttk.Label(source_card, text=self.t("pak_source"),
+                  style="Section.TLabel").pack(anchor="w")
+        ttk.Label(source_card, text=self.t("pak_source_hint"),
+                  style="CardMuted.TLabel", wraplength=760).pack(anchor="w", pady=(6, 12))
+        source_row = ttk.Frame(source_card, style="Card.TFrame")
+        source_row.pack(fill="x")
+        ttk.Entry(source_row, textvariable=self.dresscode_source).pack(
+            side="left", fill="x", expand=True, padx=(0, 8)
+        )
+        ttk.Button(
+            source_row, text=self.t("browse"), style="Secondary.TButton",
+            command=self.choose_dresscode_source,
+        ).pack(side="right")
+
+        destination_card = ttk.Frame(wrapper, style="Card.TFrame", padding=(24, 20))
+        destination_card.pack(fill="x", pady=(0, 16))
+        ttk.Label(destination_card, text=self.t("pak_destination"),
+                  style="Section.TLabel").pack(anchor="w")
+        destination_row = ttk.Frame(destination_card, style="Card.TFrame")
+        destination_row.pack(fill="x", pady=(12, 0))
+        ttk.Entry(destination_row, textvariable=self.pak_destination).pack(
+            side="left", fill="x", expand=True, padx=(0, 8)
+        )
+        ttk.Button(
+            destination_row, text=self.t("browse"), style="Secondary.TButton",
+            command=self.choose_pak_destination,
+        ).pack(side="right")
+
+        action_row = ttk.Frame(wrapper)
+        action_row.pack(fill="x", pady=(0, 16))
+        self.pak_start_button = ttk.Button(
+            action_row, text=self.t("start_pak_conversion"),
+            style="Accent.TButton", command=self.start_pak_conversion,
+        )
+        self.pak_start_button.pack(side="right")
+
+        status = ttk.Frame(wrapper, style="Card.TFrame", padding=(24, 20))
+        status.pack(fill="x")
+        ttk.Label(status, text=self.t("pak_progress"),
+                  style="Section.TLabel").pack(anchor="w")
+        self.pak_step_text.set(self.t("ready"))
+        ttk.Label(status, textvariable=self.pak_step_text,
+                  style="CardMuted.TLabel").pack(anchor="w", pady=(10, 0))
+        self.pak_progress_bar = ttk.Progressbar(
+            status, mode="indeterminate", style="Modern.Horizontal.TProgressbar",
+        )
+        self.pak_progress_bar.pack(fill="x", pady=(12, 0))
 
     def build_batch_tab(self, parent: ttk.Frame) -> None:
         canvas = tk.Canvas(parent, bg=self.COLORS["background"],
@@ -826,6 +903,92 @@ class Frontend:
         if path:
             self.batch_destination.set(path)
 
+    def choose_dresscode_source(self) -> None:
+        path = filedialog.askdirectory(title=self.t("select_dresscode_source"))
+        if path:
+            self.dresscode_source.set(path)
+
+    def choose_pak_destination(self) -> None:
+        path = filedialog.askdirectory(title=self.t("select_pak_destination"))
+        if path:
+            self.pak_destination.set(path)
+
+    def start_pak_conversion(self) -> None:
+        if not patcher_ready():
+            messagebox.showerror(
+                self.t("patcher_missing"), self.t("install_before_start"),
+                parent=self.root,
+            )
+            return
+        source = Path(self.dresscode_source.get().strip())
+        destination = Path(self.pak_destination.get().strip())
+        if (
+            not source.is_dir()
+            or not is_dresscode_folder(source)
+            or not destination.is_dir()
+        ):
+            messagebox.showerror(
+                self.t("invalid_dresscode_source"),
+                self.t("choose_pak_inputs"),
+                parent=self.root,
+            )
+            return
+        try:
+            if destination.resolve() == source.resolve() \
+                    or source.resolve() in destination.resolve().parents:
+                messagebox.showerror(
+                    self.t("invalid_dresscode_source"),
+                    self.t("pak_destination_inside_source"),
+                    parent=self.root,
+                )
+                return
+        except OSError as exc:
+            messagebox.showerror(
+                self.t("invalid_dresscode_source"), str(exc), parent=self.root
+            )
+            return
+        output = destination / dresscode_pak_output(source).name
+        if output.exists() and not messagebox.askyesno(
+                self.t("destination_exists"),
+                self.t("replace_pak_destination", target=output),
+                parent=self.root,
+        ):
+            return
+        self.set_pak_busy(True)
+        self.pak_progress_bar.start(10)
+        self.pak_step_text.set(self.t("pak_starting"))
+
+        def worker() -> None:
+            try:
+                result = DresscodePakService(self.ui_log).run(source, destination)
+                self.ui_call(lambda: messagebox.showinfo(
+                    self.t("done"), self.t("pak_conversion_completed", target=result),
+                    parent=self.root,
+                ))
+                if self.ui_call(lambda: messagebox.askyesno(
+                        self.t("open_folder_title"),
+                        self.t("open_pak_question"),
+                        parent=self.root,
+                )):
+                    try:
+                        os.startfile(str(result))
+                    except OSError as exc:
+                        self.ui_call(lambda: messagebox.showerror(
+                            self.t("open_folder_failed"), str(exc), parent=self.root
+                        ))
+            except Exception as exc:
+                self.ui_call(lambda: messagebox.showerror(
+                    self.t("process_failed"), str(exc), parent=self.root
+                ))
+            finally:
+                self.root.after(0, self.finish_pak_conversion)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_pak_conversion(self) -> None:
+        self.pak_progress_bar.stop()
+        self.set_pak_busy(False)
+
     def batch_ui_step(self, number: int) -> None:
         self.batch_progress.set(number)
         self.batch_step_text.set(
@@ -921,6 +1084,12 @@ class Frontend:
         self.batch_start_button.configure(state=state)
         self.clear_batch_button.configure(state=state)
 
+    def set_pak_busy(self, busy: bool) -> None:
+        self.pak_busy = busy
+        self.pak_start_button.configure(
+            state="disabled" if busy else ("normal" if patcher_ready() else "disabled")
+        )
+
     def add_folder_row(self, parent: ttk.Frame, label: str, variable: tk.StringVar,
                        command: Callable[[], None], row: int) -> None:
         row_frame = ttk.Frame(parent, style="Card.TFrame")
@@ -1010,6 +1179,8 @@ class Frontend:
             self.start_button.configure(state="normal" if installed else "disabled")
         if hasattr(self, "batch_start_button"):
             self.batch_start_button.configure(state="normal" if installed else "disabled")
+        if hasattr(self, "pak_start_button") and not self.pak_busy:
+            self.pak_start_button.configure(state="normal" if installed else "disabled")
 
     def append_log(self, text: str) -> None:
         line = text.rstrip()
@@ -1129,6 +1300,8 @@ class Frontend:
             self.manual_install_button.configure(state="disabled")
             self.dependencies_button.configure(state="disabled")
             self.start_button.configure(state="disabled")
+            if hasattr(self, "pak_start_button"):
+                self.pak_start_button.configure(state="disabled")
             return
         installed = patcher_ready()
         self.install_button.configure(state="disabled" if installed else "normal")
@@ -1143,6 +1316,8 @@ class Frontend:
             )
         )
         self.start_button.configure(state="normal" if installed else "disabled")
+        if hasattr(self, "pak_start_button") and not self.pak_busy:
+            self.pak_start_button.configure(state="normal" if installed else "disabled")
 
     def start(self) -> None:
         if not patcher_ready():
